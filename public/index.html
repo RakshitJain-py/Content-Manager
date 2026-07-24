@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Content Manager — Reels Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- App Shell -->
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <!-- Logo -->
+      <div class="sidebar-logo">
+        <button class="Btn" tabindex="-1">
+          <div class="BG"></div>
+          <div class="svgContainer">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+              <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
+              <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+            </svg>
+          </div>
+        </button>
+        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+          <span class="logo-title">Content Manager</span>
+          <button id="btn-logout" class="ghost-btn" style="padding: 2px 0; font-size: 11px; opacity: 0.6; display: flex; align-items: center; gap: 4px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Logout
+          </button>
+          <span class="logo-sub">Reels Dashboard</span>
+        </div>
+      </div>
+
+      <!-- Status pill -->
+      <div class="sidebar-status">
+        <span class="status-dot"></span>
+        <span class="status-label">Server Live</span>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- Accounts Section -->
+      <div class="sidebar-section">
+        <div class="section-label-row">
+          <span class="section-label">Instagram Accounts</span>
+          <button id="btn-add-account-toggle" class="icon-btn" title="Add Account">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <p class="section-hint">Select accounts to receive posts. Checked = active. Cannot change while posting.</p>
+
+        <!-- Inline add-account form -->
+        <div id="add-account-form" class="add-account-form hidden">
+          <input type="text" id="acc-name" placeholder="Account name" class="field-input">
+          <input type="text" id="acc-user-id" placeholder="Instagram User ID" class="field-input">
+          <input type="password" id="acc-token" placeholder="Access Token" class="field-input">
+          <div class="form-row-actions">
+            <button id="btn-cancel-account" class="ghost-btn">Cancel</button>
+            <button id="btn-save-account" class="gradient-btn small">Add Account</button>
+          </div>
+        </div>
+
+        <div id="accounts-list" class="accounts-list">
+          <!-- populated by JS -->
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- Preset Thumbnail Section -->
+      <div class="sidebar-section">
+        <div class="section-label-row">
+          <span class="section-label">Preset Thumbnail</span>
+          <span class="badge-pill synced">Synced</span>
+        </div>
+        <p class="section-hint">Set via <code>/newthumbnail</code> in Telegram. Auto-applied to new reels.</p>
+        <div class="cover-preview-block">
+          <div class="cover-thumb-wrap">
+            <img id="preset-cover-preview-img" class="cover-thumb-img hidden" alt="Preset cover">
+            <div id="preset-cover-preview-placeholder" class="cover-thumb-placeholder">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+            </div>
+          </div>
+          <div id="preset-cover-url-display" class="cover-url-text">No thumbnail set yet.</div>
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- Caption Editor Section -->
+      <div class="sidebar-section sidebar-section-caption">
+        <div class="section-label-row">
+          <span class="section-label">Global Caption</span>
+          <span class="badge-pill active">Active</span>
+        </div>
+        <p class="section-hint">Applied to every Reel. Supports emojis and hashtags.</p>
+        <textarea id="caption-textarea" class="caption-area" placeholder="Write your caption here..."></textarea>
+        <div class="caption-footer">
+          <span id="caption-save-status" class="save-status"></span>
+          <button id="btn-save-caption" class="ghost-btn save-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save Caption
+          </button>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- Top Bar -->
+      <div class="topbar">
+        <div class="topbar-left">
+          <h1 class="page-title">Reels Manager</h1>
+          <span id="queue-count" class="count-badge">0 items</span>
+        </div>
+        <div class="topbar-center">
+          <button id="btn-cloud-config" class="ghost-btn cloud-btn" title="Manage Cloudinary configuration">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Manage Cloud
+          </button>
+        </div>
+        <div class="topbar-right">
+          <button id="btn-refresh" class="ghost-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Refresh
+          </button>
+          <button id="btn-post-next" class="gradient-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Post Next Approved
+          </button>
+          <button id="btn-admin-panel" class="ghost-btn admin-btn hidden" title="Admin Panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Admin
+          </button>
+        </div>
+      </div>
+
+      <!-- Queue -->
+      <div id="queue-list" class="queue-list">
+        <div class="empty-state">
+          <div class="empty-icon-wrap">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="2" width="20" height="20" rx="3"/><path d="m9 15 3-3 3 3"/><path d="M12 12V7"/></svg>
+          </div>
+          <p class="empty-title">Queue is empty</p>
+          <p class="empty-sub">Send videos to your Telegram bot to queue them here.</p>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Admin Panel -->
+  <div id="admin-overlay" class="admin-overlay hidden">
+    <div class="admin-panel">
+      <div class="admin-header">
+        <div class="admin-header-left">
+          <div class="admin-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Admin
+          </div>
+          <h2 class="admin-title">Client Management</h2>
+          <span id="admin-user-count" class="count-badge">0 clients</span>
+        </div>
+        <button id="btn-close-admin" class="ghost-btn">✕ Close</button>
+      </div>
+
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Telegram User ID</th>
+              <th>Login Time</th>
+              <th>Videos Uploaded</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="admin-users-body">
+            <tr><td colspan="5" class="admin-empty">Loading clients...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="admin-note">⚡ Refreshes every 5 seconds · Revoking instantly invalidates the client's session</p>
+    </div>
+  </div>
+
+  <!-- Cloudinary Config Overlay -->
+  <div id="cloud-overlay" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width: 410px; border-color: rgba(64,93,230,0.25);">
+      <div class="modal-icon-wrap" style="background: linear-gradient(135deg, #405DE6, #833AB4); color: white; box-shadow: 0 4px 16px rgba(64,93,230,0.3);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      </div>
+      <h3 class="modal-title" style="font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #405DE6, #833AB4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 6px;">Cloudinary Settings</h3>
+      <p class="modal-message" style="margin-bottom: 20px;">Provide your own Cloudinary variables so that uploads bypass the administrator's account limits.</p>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; text-align: left;">
+        <div>
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; display: block;">Cloud Name</label>
+          <input type="text" id="cloud-name" placeholder="Cloud Name" class="field-input" style="padding: 10px 12px; font-size: 13px;">
+        </div>
+        <div>
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; display: block;">API Key</label>
+          <input type="text" id="cloud-api-key" placeholder="API Key" class="field-input" style="padding: 10px 12px; font-size: 13px;">
+        </div>
+        <div>
+          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; display: block;">API Secret</label>
+          <input type="password" id="cloud-api-secret" placeholder="API Secret" class="field-input" style="padding: 10px 12px; font-size: 13px;">
+        </div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; gap: 10px;">
+        <button id="btn-close-cloud" class="ghost-btn" style="flex: 1; padding: 11px; justify-content: center; font-size: 13px;">Cancel</button>
+        <button id="btn-save-cloud" class="gradient-btn" style="flex: 1; padding: 11px; justify-content: center; font-size: 13px;">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login Overlay -->
+  <div id="login-overlay" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width: 355px; border-color: rgba(193,53,132,0.25);">
+      <div class="modal-icon-wrap" style="background: var(--ig-gradient); color: white; box-shadow: 0 4px 16px rgba(193,53,132,0.3);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <h3 class="modal-title" style="font-size: 20px; font-weight: 800; background: var(--ig-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 6px;">Client Access</h3>
+      <p class="modal-message" style="margin-bottom: 20px;">Please enter your Telegram User ID and the 6-digit access code (OTP).</p>
+      
+      <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px;">
+        <input type="text" id="login-userid" placeholder="Telegram User ID" class="field-input" style="padding: 10px 12px; font-size: 13px;">
+        <input type="text" id="login-otp" placeholder="6-digit Access Code" class="field-input" style="padding: 10px 12px; font-size: 14px; text-align: center; letter-spacing: 6px; font-weight: 800; font-family: monospace;">
+      </div>
+
+      <button id="btn-login" class="gradient-btn" style="width: 100%; justify-content: center; padding: 11px; font-size: 13px;">
+        Unlock Dashboard
+      </button>
+    </div>
+  </div>
+
+  <!-- Custom Confirmation Modal -->
+  <div id="confirm-overlay" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-icon-wrap" id="modal-icon-wrap">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <h3 class="modal-title" id="modal-title">Are you sure?</h3>
+      <p class="modal-message" id="modal-message">This action cannot be undone.</p>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="ghost-btn modal-ghost">Cancel</button>
+        <button id="modal-confirm" class="gradient-btn modal-danger-btn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Posting Lock Banner -->
+  <div id="posting-banner" class="posting-banner hidden">
+    <div class="posting-banner-inner">
+      <div class="posting-spinner"></div>
+      <span>Publishing in progress — account selection is locked.</span>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
