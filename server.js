@@ -16,13 +16,14 @@ const PORT = process.env.PORT || 3000;
 // ─── Admin middleware ─────────────────────────────────────────────────────────
 // Every admin route uses this to verify BOTH the token (server-side session)
 // AND that the user is the actual admin defined in .env.
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
   const { token, telegramUserId } = req.body;
   const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
   if (!adminId || String(telegramUserId) !== String(adminId)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
-  if (!db.validateSession(token, telegramUserId)) {
+  const valid = await db.validateSession(token, telegramUserId);
+  if (!valid) {
     return res.status(401).json({ error: 'Invalid or expired session' });
   }
   next();
@@ -30,13 +31,14 @@ function requireAdmin(req, res, next) {
 
 // ─── Client authentication middleware ─────────────────────────────────────────
 // Validates token and user ID from headers, sets req.telegramUserId
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = req.headers['x-session-token'];
   const telegramUserId = req.headers['x-telegram-user-id'];
   if (!token || !telegramUserId) {
     return res.status(401).json({ error: 'Session credentials missing.' });
   }
-  if (!db.validateSession(token, telegramUserId)) {
+  const valid = await db.validateSession(token, telegramUserId);
+  if (!valid) {
     return res.status(401).json({ error: 'Session invalid or revoked.' });
   }
   req.telegramUserId = String(telegramUserId);
@@ -125,21 +127,26 @@ async function publishContainer(containerId, userId, accessToken) {
 
 // API Endpoints
 // 1. Get all media
-app.get('/api/media', requireAuth, (req, res) => {
-  res.json(db.getAll());
+app.get('/api/media', requireAuth, async (req, res) => {
+  try {
+    const list = await db.getAll();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 1b. Delete media by ID (also removes from Cloudinary if uploaded)
 app.delete('/api/media/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
-  const item = db.getById(id);
+  const item = await db.getById(id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
 
   // Delete from Cloudinary if there is a cloudinaryUrl
   if (item.cloudinaryUrl) {
     try {
       const uploaderId = item.telegramUserId || req.telegramUserId;
-      const cloudConfig = db.getCloudinaryConfig(uploaderId);
+      const cloudConfig = await db.getCloudinaryConfig(uploaderId);
       if (cloudConfig) {
         // Extract public_id from URL e.g. reelbot/abc123 from .../reelbot/abc123.mp4
         const urlParts = item.cloudinaryUrl.split('/');
@@ -168,39 +175,40 @@ app.delete('/api/media/:id', requireAuth, async (req, res) => {
     }
   }
 
-  db.remove(id);
+  await db.remove(id);
   res.json({ success: true });
 });
 
 // 2. Approve media by ID
-app.post('/api/approve', requireAuth, (req, res) => {
+app.post('/api/approve', requireAuth, async (req, res) => {
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: 'Missing ID' });
   
-  const item = db.getById(id);
+  const item = await db.getById(id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
   
-  db.update(id, { status: 'approved' });
-  res.json({ success: true, item: db.getById(id) });
+  await db.update(id, { status: 'approved' });
+  const updated = await db.getById(id);
+  res.json({ success: true, item: updated });
 });
 
 // 3. Post (publish) items
 app.post('/api/post', requireAuth, async (req, res) => {
   const { id, count } = req.body;
   
-  const activeAccounts = db.getAccounts(req.telegramUserId).filter(a => a.isActive);
+  const activeAccounts = (await db.getAccounts(req.telegramUserId)).filter(a => a.isActive);
   if (activeAccounts.length === 0) {
     return res.status(400).json({ error: 'No active Instagram accounts selected. Activate at least one account in the dashboard.' });
   }
 
   let itemsToPost = [];
   if (id) {
-    const item = db.getById(id);
+    const item = await db.getById(id);
     if (!item) return res.status(404).json({ error: `Item with ID ${id} not found.` });
     itemsToPost = [item];
   } else {
     const limit = parseInt(count, 10) || 1;
-    const approvedItems = db.getApproved();
+    const approvedItems = await db.getApproved();
     if (approvedItems.length === 0) {
       return res.status(400).json({ error: 'No approved media items found in queue.' });
     }
@@ -212,7 +220,7 @@ app.post('/api/post', requireAuth, async (req, res) => {
 
   // Process in the background so the UI doesn't hang
   for (const item of itemsToPost) {
-    db.update(item.id, { status: 'uploading', error: null });
+    await db.update(item.id, { status: 'uploading', error: null });
     try {
       // Fetch current caption.txt (or fallback to environment variable)
       let caption = process.env.DEFAULT_CAPTION || 'Default caption #reels';
@@ -223,14 +231,14 @@ app.post('/api/post', requireAuth, async (req, res) => {
 
       // Retrieve uploader's Cloudinary credentials dynamically
       const uploaderId = item.telegramUserId || req.telegramUserId;
-      const cloudConfig = db.getCloudinaryConfig(uploaderId);
+      const cloudConfig = await db.getCloudinaryConfig(uploaderId);
       if (!cloudConfig) {
         throw new Error('Cloudinary credentials are not configured on the dashboard under "Manage Cloud".');
       }
 
       // Step 1: Upload to Cloudinary
       const cloudinaryUrl = await uploadToCloudinary(item.localPath, cloudConfig);
-      db.update(item.id, { cloudinaryUrl });
+      await db.update(item.id, { cloudinaryUrl });
 
       // Determine coverUrl: item-level first, then preset_cover.txt
       let coverUrl = item.coverUrl || null;
@@ -271,7 +279,7 @@ app.post('/api/post', requireAuth, async (req, res) => {
       const finalStatus = errors.length > 0 ? 'failed' : 'published';
       const finalError = errors.length > 0 ? `Some accounts failed: ${errors.join(' | ')}` : null;
 
-      db.update(item.id, {
+      await db.update(item.id, {
         status: finalStatus,
         instagramMediaId: results.join(', '),
         publishedAt: new Date().toISOString(),
@@ -279,7 +287,7 @@ app.post('/api/post', requireAuth, async (req, res) => {
       });
     } catch (err) {
       console.error(`Error publishing item ${item.id}:`, err);
-      db.update(item.id, {
+      await db.update(item.id, {
         status: 'failed',
         error: err.message
       });
@@ -288,177 +296,223 @@ app.post('/api/post', requireAuth, async (req, res) => {
 });
 
 // 4. Get active caption
-app.get('/api/caption', requireAuth, (req, res) => {
-  const captionFilePath = paths.caption;
-  let caption = '';
-  if (fs.existsSync(captionFilePath)) {
-    caption = fs.readFileSync(captionFilePath, 'utf8');
-  } else {
-    caption = process.env.DEFAULT_CAPTION || '';
+app.get('/api/caption', requireAuth, async (req, res) => {
+  try {
+    const caption = await db.getCaption();
+    res.json({ caption: caption || process.env.DEFAULT_CAPTION || '' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ caption });
 });
 
 // 5. Update caption
-app.post('/api/caption', requireAuth, (req, res) => {
+app.post('/api/caption', requireAuth, async (req, res) => {
   const { caption } = req.body;
   if (caption === undefined) return res.status(400).json({ error: 'Missing caption field' });
-  
-  const captionFilePath = paths.caption;
-  fs.writeFileSync(captionFilePath, caption, 'utf8');
-  res.json({ success: true, caption });
+  try {
+    await db.setCaption(caption);
+    res.json({ success: true, caption });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 6. Get preset cover thumbnail URL
-app.get('/api/preset-cover', requireAuth, (req, res) => {
-  const presetCoverPath = paths.presetCover;
-  let coverUrl = '';
-  if (fs.existsSync(presetCoverPath)) {
-    coverUrl = fs.readFileSync(presetCoverPath, 'utf8');
+app.get('/api/preset-cover', requireAuth, async (req, res) => {
+  try {
+    const coverUrl = await db.getPresetCover();
+    res.json({ coverUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ coverUrl });
 });
 
 // 7. Update preset cover thumbnail URL
-app.post('/api/preset-cover', requireAuth, (req, res) => {
+app.post('/api/preset-cover', requireAuth, async (req, res) => {
   const { coverUrl } = req.body;
   if (coverUrl === undefined) return res.status(400).json({ error: 'Missing coverUrl field' });
-  
-  const presetCoverPath = paths.presetCover;
-  fs.writeFileSync(presetCoverPath, coverUrl, 'utf8');
-  res.json({ success: true, coverUrl });
+  try {
+    await db.setPresetCover(coverUrl);
+    res.json({ success: true, coverUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 8. Update specific media custom cover
-app.post('/api/media/cover', requireAuth, (req, res) => {
+app.post('/api/media/cover', requireAuth, async (req, res) => {
   const { id, coverUrl } = req.body;
   if (!id) return res.status(400).json({ error: 'Missing ID' });
-  
-  const item = db.getById(id);
-  if (!item) return res.status(404).json({ error: 'Item not found' });
-  
-  db.update(id, { coverUrl: coverUrl || null });
-  res.json({ success: true, item: db.getById(id) });
+  try {
+    const item = await db.getById(id);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    await db.update(id, { coverUrl: coverUrl || null });
+    const updated = await db.getById(id);
+    res.json({ success: true, item: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 8b. Cloudinary Config endpoints (Secured & Isolated per User)
-app.get('/api/cloudinary-config', requireAuth, (req, res) => {
-  const config = db.getCloudinaryConfig(req.telegramUserId);
-  res.json({ success: true, config });
+app.get('/api/cloudinary-config', requireAuth, async (req, res) => {
+  try {
+    const config = await db.getCloudinaryConfig(req.telegramUserId);
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/cloudinary-config', requireAuth, (req, res) => {
+app.post('/api/cloudinary-config', requireAuth, async (req, res) => {
   const { cloudName, apiKey, apiSecret } = req.body;
   if (!cloudName || !apiKey || !apiSecret) {
     return res.status(400).json({ error: 'Missing cloudName, apiKey, or apiSecret' });
   }
-  db.setCloudinaryConfig(req.telegramUserId, { cloudName, apiKey, apiSecret });
-  res.json({ success: true });
+  try {
+    await db.setCloudinaryConfig(req.telegramUserId, { cloudName, apiKey, apiSecret });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 9. Accounts endpoints (Secured & Isolated per User)
-app.get('/api/accounts', requireAuth, (req, res) => {
-  res.json(db.getAccounts(req.telegramUserId));
+app.get('/api/accounts', requireAuth, async (req, res) => {
+  try {
+    const accs = await db.getAccounts(req.telegramUserId);
+    res.json(accs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/accounts', requireAuth, (req, res) => {
+app.post('/api/accounts', requireAuth, async (req, res) => {
   const { name, userId, accessToken } = req.body;
   if (!name || !userId || !accessToken) {
     return res.status(400).json({ error: 'Missing name, userId, or accessToken' });
   }
-  const newAcc = db.addAccount({ name, userId, accessToken, telegramOwner: req.telegramUserId });
-  res.json({ success: true, account: newAcc });
+  try {
+    const newAcc = await db.addAccount({ name, userId, accessToken, telegramOwner: req.telegramUserId });
+    res.json({ success: true, account: newAcc });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/accounts/toggle', requireAuth, (req, res) => {
+app.post('/api/accounts/toggle', requireAuth, async (req, res) => {
   const { id, isActive } = req.body;
-  const accounts = db.getAccounts(req.telegramUserId);
-  const belongsToUser = accounts.some(a => String(a.id) === String(id));
-  if (!belongsToUser) {
-    return res.status(403).json({ error: 'Access denied to this account.' });
-  }
+  try {
+    const accounts = await db.getAccounts(req.telegramUserId);
+    const belongsToUser = accounts.some(a => String(a.id) === String(id));
+    if (!belongsToUser) {
+      return res.status(403).json({ error: 'Access denied to this account.' });
+    }
 
-  const updated = db.updateAccount(id, { isActive: !!isActive });
-  if (!updated) return res.status(404).json({ error: 'Account not found' });
-  res.json({ success: true, account: updated });
+    const updated = await db.updateAccount(id, { isActive: !!isActive });
+    if (!updated) return res.status(404).json({ error: 'Account not found' });
+    res.json({ success: true, account: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.delete('/api/accounts/:id', requireAuth, (req, res) => {
+app.delete('/api/accounts/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
-  const accounts = db.getAccounts(req.telegramUserId);
-  const belongsToUser = accounts.some(a => String(a.id) === String(id));
-  if (!belongsToUser) {
-    return res.status(403).json({ error: 'Access denied to this account.' });
-  }
+  try {
+    const accounts = await db.getAccounts(req.telegramUserId);
+    const belongsToUser = accounts.some(a => String(a.id) === String(id));
+    if (!belongsToUser) {
+      return res.status(403).json({ error: 'Access denied to this account.' });
+    }
 
-  const removed = db.removeAccount(id);
-  if (!removed) return res.status(404).json({ error: 'Account not found' });
-  res.json({ success: true });
+    const removed = await db.removeAccount(id);
+    if (!removed) return res.status(404).json({ error: 'Account not found' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 10. Authentication
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { telegramUserId, otp } = req.body;
   if (!telegramUserId || !otp) {
     return res.status(400).json({ error: 'Missing telegramUserId or otp' });
   }
 
-  // Validate OTP
-  const activeOtp = db.getOtp();
-  if (!activeOtp || activeOtp !== String(otp).trim()) {
-    return res.status(401).json({ error: 'Invalid or expired access code.' });
+  try {
+    // Validate OTP
+    const activeOtp = await db.getOtp();
+    if (!activeOtp || activeOtp !== String(otp).trim()) {
+      return res.status(401).json({ error: 'Invalid or expired access code.' });
+    }
+
+    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+    const isAdm = adminId && String(adminId) === String(telegramUserId);
+
+    if (!isAdm) {
+      // Adds or re-activates client in allowedUsers
+      await db.addAllowedUser(telegramUserId);
+    }
+
+    // Single-use OTP — clear immediately
+    await db.clearOtp();
+
+    // Generate a cryptographically secure server-side session token
+    const token = crypto.randomBytes(32).toString('hex');
+    await db.createSession(token, telegramUserId);
+
+    res.json({ success: true, isAdmin: isAdm, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
-  const isAdm = adminId && String(adminId) === String(telegramUserId);
-
-  if (!isAdm) {
-    // Adds or re-activates client in allowedUsers
-    db.addAllowedUser(telegramUserId);
-  }
-
-  // Single-use OTP — clear immediately
-  db.clearOtp();
-
-  // Generate a cryptographically secure server-side session token
-  const token = crypto.randomBytes(32).toString('hex');
-  db.createSession(token, telegramUserId);
-
-  res.json({ success: true, isAdmin: isAdm, token });
 });
 
-app.post('/api/verify-session', (req, res) => {
+app.post('/api/verify-session', async (req, res) => {
   const { token, telegramUserId } = req.body;
   if (!token || !telegramUserId) return res.status(401).json({ valid: false });
 
-  const valid = db.validateSession(token, telegramUserId);
-  if (!valid) return res.json({ valid: false });
+  try {
+    const valid = await db.validateSession(token, telegramUserId);
+    if (!valid) return res.json({ valid: false });
 
-  const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
-  const isAdmin = adminId && String(adminId) === String(telegramUserId);
-  res.json({ valid: true, isAdmin });
+    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+    const isAdmin = adminId && String(adminId) === String(telegramUserId);
+    res.json({ valid: true, isAdmin });
+  } catch (err) {
+    res.json({ valid: false });
+  }
 });
 
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', async (req, res) => {
   const { token, telegramUserId } = req.body;
-  if (token && telegramUserId) {
-    db.deleteSessionsForUser(telegramUserId);
+  try {
+    if (token && telegramUserId) {
+      await db.deleteSessionsForUser(telegramUserId);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ success: true });
 });
 
 // 11. Admin-only routes — all protected by requireAdmin middleware
-app.post('/api/admin/users', requireAdmin, (req, res) => {
-  const users = db.getAllowedUsers().map(u => ({
-    userId: u.userId,
-    loginTime: u.loginTime,
-    uploadCount: u.uploadCount || 0,
-    isRevoked: u.isRevoked
-  }));
-  res.json({ success: true, users });
+app.post('/api/admin/users', requireAdmin, async (req, res) => {
+  try {
+    const rawUsers = await db.getAllowedUsers();
+    const users = rawUsers.map(u => ({
+      userId: u.userId,
+      loginTime: u.loginTime,
+      uploadCount: u.uploadCount || 0
+    }));
+    res.json({ success: true, users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/admin/revoke', requireAdmin, (req, res) => {
+app.post('/api/admin/revoke', requireAdmin, async (req, res) => {
   const { targetUserId } = req.body;
   if (!targetUserId) return res.status(400).json({ error: 'Missing targetUserId' });
 
@@ -468,8 +522,12 @@ app.post('/api/admin/revoke', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Cannot revoke admin access.' });
   }
 
-  db.revokeUser(targetUserId);
-  res.json({ success: true });
+  try {
+    await db.revokeUser(targetUserId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Start Server

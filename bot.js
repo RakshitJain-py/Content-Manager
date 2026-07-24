@@ -33,7 +33,7 @@ bot.on('message', async (msg) => {
   const senderName = `${msg.from.first_name || ''} ${msg.from.last_name || ''} (@${username})`.trim();
 
   // Check if user is allowed (admin or in db.json allowedUsers list)
-  const isAllowed = db.isUserAllowed(userId);
+  const isAllowed = await db.isUserAllowed(userId);
 
   if (!isAllowed) {
     console.log(`Received message from unauthorized user. Details:`);
@@ -70,7 +70,7 @@ bot.on('message', async (msg) => {
       return;
     }
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    db.setOtp(otp);
+    await db.setOtp(otp);
     console.log(`\n🔑 [ADMIN] Generated Login OTP: ${otp}\n`);
     bot.sendMessage(
       chatId,
@@ -117,7 +117,7 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    const cloudConfig = db.getCloudinaryConfig(userId);
+    const cloudConfig = await db.getCloudinaryConfig(userId);
     if (!cloudConfig) {
       delete userStates[userId];
       bot.sendMessage(chatId, '⚠️ Please configure your Cloudinary credentials on the dashboard first under "Manage Cloud"!');
@@ -137,15 +137,15 @@ bot.on('message', async (msg) => {
       });
       const coverUrl = uploadResult.secure_url;
 
-      // Save as active preset cover
-      const presetCoverPath = paths.presetCover;
-      fs.writeFileSync(presetCoverPath, coverUrl, 'utf8');
+      // Save as active preset cover (also save in Supabase so it persists)
+      await db.setPresetCover(coverUrl);
 
       // Backfill all items in the queue (pending/approved) that do not have a cover
-      const allPendingOrApproved = db.getAll().filter(m => (m.status === 'pending' || m.status === 'approved') && !m.coverUrl);
-      allPendingOrApproved.forEach(item => {
-        db.update(item.id, { coverUrl });
-      });
+      const allMedia = await db.getAll();
+      const allPendingOrApproved = allMedia.filter(m => (m.status === 'pending' || m.status === 'approved') && !m.coverUrl);
+      for (const item of allPendingOrApproved) {
+        await db.update(item.id, { coverUrl });
+      }
 
       // Cleanup local temp file
       if (fs.existsSync(downloadedFilePath)) {
@@ -197,7 +197,7 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  const cloudConfig = db.getCloudinaryConfig(userId);
+  const cloudConfig = await db.getCloudinaryConfig(userId);
   if (!cloudConfig) {
     bot.sendMessage(chatId, '⚠️ Please configure your Cloudinary credentials on the dashboard first under "Manage Cloud" to begin queuing videos.');
     return;
@@ -211,7 +211,7 @@ bot.on('message', async (msg) => {
     const relativePath = 'downloads/' + path.basename(downloadedFilePath);
 
     // Save record to DB
-    const record = db.add({
+    const record = await db.add({
       id: msg.message_id,
       filename,
       localPath: relativePath,
@@ -221,20 +221,16 @@ bot.on('message', async (msg) => {
     });
 
     // Check if there is an active preset cover and assign it immediately
-    const presetCoverPath = paths.presetCover;
-    let activeCoverUrl = null;
-    if (fs.existsSync(presetCoverPath)) {
-      activeCoverUrl = fs.readFileSync(presetCoverPath, 'utf8').trim();
-    }
+    const activeCoverUrl = await db.getPresetCover();
 
     if (activeCoverUrl) {
-      db.update(record.id, { coverUrl: activeCoverUrl });
+      await db.update(record.id, { coverUrl: activeCoverUrl });
     }
 
     // Track upload count for non-admin clients
     const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
     if (!adminId || String(userId) !== String(adminId)) {
-      db.incrementUploadCount(userId);
+      await db.incrementUploadCount(userId);
     }
 
     console.log(`Successfully queued: ${filename} (Status: pending, Queue ID: ${record.id})`);
