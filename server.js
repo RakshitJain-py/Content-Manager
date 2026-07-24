@@ -126,10 +126,14 @@ async function publishContainer(containerId, userId, accessToken) {
 }
 
 // API Endpoints
-// 1. Get all media
+// 1. Get all media (Isolate per client)
 app.get('/api/media', requireAuth, async (req, res) => {
   try {
-    const list = await db.getAll();
+    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+    const isAdm = adminId && String(adminId) === String(req.telegramUserId);
+    
+    // Clients only see their own uploads; Admin sees everything
+    const list = await db.getAll(isAdm ? null : req.telegramUserId);
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -141,6 +145,12 @@ app.delete('/api/media/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   const item = await db.getById(id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
+
+  const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+  const isAdm = adminId && String(adminId) === String(req.telegramUserId);
+  if (!isAdm && String(item.telegramUserId) !== String(req.telegramUserId)) {
+    return res.status(403).json({ error: 'Access denied: You do not own this media.' });
+  }
 
   // Delete from Cloudinary if there is a cloudinaryUrl
   if (item.cloudinaryUrl) {
@@ -186,6 +196,12 @@ app.post('/api/approve', requireAuth, async (req, res) => {
   
   const item = await db.getById(id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
+
+  const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+  const isAdm = adminId && String(adminId) === String(req.telegramUserId);
+  if (!isAdm && String(item.telegramUserId) !== String(req.telegramUserId)) {
+    return res.status(403).json({ error: 'Access denied: You do not own this media.' });
+  }
   
   await db.update(id, { status: 'approved' });
   const updated = await db.getById(id);
@@ -202,13 +218,19 @@ app.post('/api/post', requireAuth, async (req, res) => {
   }
 
   let itemsToPost = [];
+  const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+  const isAdm = adminId && String(adminId) === String(req.telegramUserId);
+
   if (id) {
     const item = await db.getById(id);
     if (!item) return res.status(404).json({ error: `Item with ID ${id} not found.` });
+    if (!isAdm && String(item.telegramUserId) !== String(req.telegramUserId)) {
+      return res.status(403).json({ error: 'Access denied: You do not own this media.' });
+    }
     itemsToPost = [item];
   } else {
     const limit = parseInt(count, 10) || 1;
-    const approvedItems = await db.getApproved();
+    const approvedItems = await db.getApproved(isAdm ? null : req.telegramUserId);
     if (approvedItems.length === 0) {
       return res.status(400).json({ error: 'No approved media items found in queue.' });
     }

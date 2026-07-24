@@ -19,8 +19,13 @@ const db = {
   },
 
   // ─── Media ────────────────────────────────────────────────────────────
-  async getAll() {
-    const res = await this.query('SELECT * FROM media ORDER BY timestamp DESC');
+  async getAll(telegramUserId) {
+    let res;
+    if (telegramUserId) {
+      res = await this.query('SELECT * FROM media WHERE telegram_user_id = $1 ORDER BY timestamp DESC', [String(telegramUserId)]);
+    } else {
+      res = await this.query('SELECT * FROM media ORDER BY timestamp DESC');
+    }
     return res.rows.map(m => this.mapMediaRow(m));
   },
 
@@ -29,13 +34,23 @@ const db = {
     return res.rows.length > 0 ? this.mapMediaRow(res.rows[0]) : null;
   },
 
-  async getPending() {
-    const res = await this.query('SELECT * FROM media WHERE status = $1 ORDER BY timestamp DESC', ['pending']);
+  async getPending(telegramUserId) {
+    let res;
+    if (telegramUserId) {
+      res = await this.query('SELECT * FROM media WHERE status = $1 AND telegram_user_id = $2 ORDER BY timestamp DESC', ['pending', String(telegramUserId)]);
+    } else {
+      res = await this.query('SELECT * FROM media WHERE status = $1 ORDER BY timestamp DESC', ['pending']);
+    }
     return res.rows.map(m => this.mapMediaRow(m));
   },
 
-  async getApproved() {
-    const res = await this.query('SELECT * FROM media WHERE status = $1 ORDER BY timestamp DESC', ['approved']);
+  async getApproved(telegramUserId) {
+    let res;
+    if (telegramUserId) {
+      res = await this.query('SELECT * FROM media WHERE status = $1 AND telegram_user_id = $2 ORDER BY timestamp DESC', ['approved', String(telegramUserId)]);
+    } else {
+      res = await this.query('SELECT * FROM media WHERE status = $1 ORDER BY timestamp DESC', ['approved']);
+    }
     return res.rows.map(m => this.mapMediaRow(m));
   },
 
