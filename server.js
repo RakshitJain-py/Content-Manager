@@ -5,10 +5,10 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { v2: cloudinary } = require('cloudinary');
 const fetch = require('node-fetch');
 const db = require('./db');
 const paths = require('./paths');
+const storage = require('./storage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -48,31 +48,12 @@ async function requireAuth(req, res, next) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Configure Cloudinary from environment
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 const IG_ACCESS_TOKEN = process.env.IG_ACCESS_TOKEN;
 const IG_USER_ID = process.env.IG_USER_ID;
 const GRAPH_VERSION = 'v21.0';
 const GRAPH_BASE = `https://graph.instagram.com/${GRAPH_VERSION}`;
 
-// Shared helper functions for publishing
-async function uploadToCloudinary(localFilePath, cloudConfig) {
-  if (!cloudConfig) throw new Error('Cloudinary credentials are not configured on the dashboard.');
-  const absolutePath = paths.resolveMedia(localFilePath);
-  const result = await cloudinary.uploader.upload(absolutePath, {
-    cloud_name: cloudConfig.cloudName,
-    api_key: cloudConfig.apiKey,
-    api_secret: cloudConfig.apiSecret,
-    resource_type: 'video',
-    folder: 'reelbot',
-  });
-  return result.secure_url;
-}
 
 async function createReelContainer(videoUrl, caption, coverUrl, userId, accessToken) {
   const url = `https://graph.instagram.com/v21.0/${userId}/media`;
@@ -152,28 +133,13 @@ app.delete('/api/media/:id', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'Access denied: You do not own this media.' });
   }
 
-  // Delete from Cloudinary if there is a cloudinaryUrl
-  if (item.cloudinaryUrl) {
+  // Delete from Supabase Storage if there is a stored URL
+  if (item.supabaseUrl) {
     try {
-      const uploaderId = item.telegramUserId || req.telegramUserId;
-      const cloudConfig = await db.getCloudinaryConfig(uploaderId);
-      if (cloudConfig) {
-        // Extract public_id from URL e.g. reelbot/abc123 from .../reelbot/abc123.mp4
-        const urlParts = item.cloudinaryUrl.split('/');
-        const filenameWithExt = urlParts[urlParts.length - 1];
-        const filename = filenameWithExt.replace(/\.[^/.]+$/, '');
-        const folder = urlParts[urlParts.length - 2];
-        const publicId = `${folder}/${filename}`;
-        await cloudinary.uploader.destroy(publicId, {
-          resource_type: 'video',
-          cloud_name: cloudConfig.cloudName,
-          api_key: cloudConfig.apiKey,
-          api_secret: cloudConfig.apiSecret
-        });
-      }
+      await storage.deleteFile(item.supabaseUrl);
     } catch (err) {
-      console.error(`Cloudinary delete failed for item ${id}:`, err.message);
-      // Don't block deletion even if Cloudinary fails
+      console.error(`Supabase Storage delete failed for item ${id}:`, err.message);
+      // Don't block deletion even if storage delete fails
     }
   }
 
@@ -245,35 +211,22 @@ app.post('/api/post', requireAuth, async (req, res) => {
     await db.update(item.id, { status: 'uploading', error: null });
     try {
       // Fetch current caption from database (or fallback to environment variable)
-      let caption = await db.getCaption();
+      let caption = await db.getCaption(item.telegramUserId);
       if (!caption || !caption.trim()) {
         caption = process.env.DEFAULT_CAPTION || 'Default caption #reels';
       }
 
-      // Step 1: Resolve Cloudinary URL
-      let cloudinaryUrl = item.cloudinaryUrl;
+      // Step 1: Resolve Supabase Storage URL
+      let videoUrl = item.supabaseUrl;
 
-      if (!cloudinaryUrl) {
-        // Fallback: Upload local file to Cloudinary if URL is missing (legacy items)
-        if (!item.localPath) {
-          throw new Error('Local video file path is missing and no Cloudinary URL exists.');
-        }
-        const uploaderId = item.telegramUserId || req.telegramUserId;
-        const cloudConfig = await db.getCloudinaryConfig(uploaderId);
-        if (!cloudConfig) {
-          throw new Error('Cloudinary credentials are not configured on the dashboard under "Manage Cloud".');
-        }
-        cloudinaryUrl = await uploadToCloudinary(item.localPath, cloudConfig);
-        await db.update(item.id, { cloudinaryUrl });
+      if (!videoUrl) {
+        throw new Error('No video URL found for this item. Please re-upload the video via the bot.');
       }
 
-      // Determine coverUrl: item-level first, then preset_cover.txt
+      // Determine coverUrl: item-level first, then preset cover from DB
       let coverUrl = item.coverUrl || null;
       if (!coverUrl) {
-        const presetCoverPath = paths.presetCover;
-        if (fs.existsSync(presetCoverPath)) {
-          coverUrl = fs.readFileSync(presetCoverPath, 'utf8').trim() || null;
-        }
+        coverUrl = await db.getPresetCover(item.telegramUserId) || null;
       }
 
       const results = [];
@@ -281,8 +234,8 @@ app.post('/api/post', requireAuth, async (req, res) => {
 
       for (const account of activeAccounts) {
         try {
-          // Step 2: Create IG Reel Container (passing coverUrl, userId, accessToken)
-          const containerId = await createReelContainer(cloudinaryUrl, caption, coverUrl, account.userId, account.accessToken);
+          // Step 2: Create IG Reel Container
+          const containerId = await createReelContainer(videoUrl, caption, coverUrl, account.userId, account.accessToken);
 
           // Step 3: Wait for IG to process video
           await waitForContainerReady(containerId, account.accessToken);
@@ -312,6 +265,17 @@ app.post('/api/post', requireAuth, async (req, res) => {
         publishedAt: new Date().toISOString(),
         error: finalError
       });
+
+      // Auto-delete from Supabase Storage after successful publish to save space
+      if (finalStatus === 'published' && item.supabaseUrl) {
+        try {
+          await storage.deleteFile(item.supabaseUrl);
+          console.log(`Deleted from Supabase Storage after publish: ${item.supabaseUrl}`);
+        } catch (delErr) {
+          console.error(`Storage auto-delete failed for item ${item.id}:`, delErr.message);
+        }
+      }
+
     } catch (err) {
       console.error(`Error publishing item ${item.id}:`, err);
       await db.update(item.id, {
@@ -381,28 +345,6 @@ app.post('/api/media/cover', requireAuth, async (req, res) => {
   }
 });
 
-// 8b. Cloudinary Config endpoints (Secured & Isolated per User)
-app.get('/api/cloudinary-config', requireAuth, async (req, res) => {
-  try {
-    const config = await db.getCloudinaryConfig(req.telegramUserId);
-    res.json({ success: true, config });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/cloudinary-config', requireAuth, async (req, res) => {
-  const { cloudName, apiKey, apiSecret } = req.body;
-  if (!cloudName || !apiKey || !apiSecret) {
-    return res.status(400).json({ error: 'Missing cloudName, apiKey, or apiSecret' });
-  }
-  try {
-    await db.setCloudinaryConfig(req.telegramUserId, { cloudName, apiKey, apiSecret });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // 9. Accounts endpoints (Secured & Isolated per User)
 app.get('/api/accounts', requireAuth, async (req, res) => {

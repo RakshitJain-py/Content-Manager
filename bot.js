@@ -4,9 +4,9 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const TelegramBot = require('node-telegram-bot-api').default;
-const { v2: cloudinary } = require('cloudinary');
 const db = require('./db');
 const paths = require('./paths');
+const storage = require('./storage');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowedUserId = process.env.ALLOWED_TELEGRAM_USER_ID;
@@ -117,27 +117,15 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    const cloudConfig = await db.getCloudinaryConfig(userId);
-    if (!cloudConfig) {
-      delete userStates[userId];
-      bot.sendMessage(chatId, '⚠️ Please configure your Cloudinary credentials on the dashboard first under "Manage Cloud"!');
-      return;
-    }
-
     try {
-      bot.sendMessage(chatId, '📥 Uploading thumbnail to Cloudinary...');
+      bot.sendMessage(chatId, '📥 Uploading thumbnail to Supabase Storage...');
       const downloadedFilePath = await bot.downloadFile(fileId, downloadsDir);
 
-      // Upload directly to Cloudinary using user's specific credentials
-      const uploadResult = await cloudinary.uploader.upload(downloadedFilePath, {
-        cloud_name: cloudConfig.cloudName,
-        api_key: cloudConfig.apiKey,
-        api_secret: cloudConfig.apiSecret,
-        folder: 'reelbot_covers',
-      });
-      const coverUrl = uploadResult.secure_url;
+      // Upload to Supabase Storage
+      const storagePath = `covers/${userId}_${Date.now()}_${filename}`;
+      const coverUrl = await storage.uploadFile(downloadedFilePath, storagePath);
 
-      // Save as active preset cover (also save in Supabase so it persists)
+      // Save as active preset cover (persists in DB)
       await db.setPresetCover(userId, coverUrl);
 
       // Backfill all items in the queue (pending/approved) that do not have a cover
@@ -197,29 +185,17 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  const cloudConfig = await db.getCloudinaryConfig(userId);
-  if (!cloudConfig) {
-    bot.sendMessage(chatId, '⚠️ Please configure your Cloudinary credentials on the dashboard first under "Manage Cloud" to begin queuing videos.');
-    return;
-  }
-
   try {
-    bot.sendMessage(chatId, `📥 Fetching and uploading media: "${filename}" to your Cloudinary...`);
+    bot.sendMessage(chatId, `📥 Downloading and uploading "${filename}" to Supabase Storage...`);
     console.log(`Downloading ${filename} (ID: ${fileId}) from Telegram...`);
 
     const downloadedFilePath = await bot.downloadFile(fileId, downloadsDir);
 
-    // Upload to Cloudinary immediately
-    const uploadResult = await cloudinary.uploader.upload(downloadedFilePath, {
-      cloud_name: cloudConfig.cloudName,
-      api_key: cloudConfig.apiKey,
-      api_secret: cloudConfig.apiSecret,
-      resource_type: 'video',
-      folder: 'reelbot',
-    });
-    const cloudinaryUrl = uploadResult.secure_url;
+    // Upload to Supabase Storage
+    const storagePath = `reels/${userId}_${Date.now()}_${filename}`;
+    const supabaseUrl = await storage.uploadFile(downloadedFilePath, storagePath);
 
-    // Cleanup local temp file
+    // Cleanup local temp file immediately after upload
     if (fs.existsSync(downloadedFilePath)) {
       try { fs.unlinkSync(downloadedFilePath); } catch (_) {}
     }
@@ -228,18 +204,17 @@ bot.on('message', async (msg) => {
     const record = await db.add({
       id: msg.message_id,
       filename,
-      localPath: null, // No local path needed now
+      localPath: null,
       mediaType,
       telegramUser: username || userId,
       telegramUserId: userId
     });
 
-    // Save Cloudinary URL to record
-    await db.update(record.id, { cloudinaryUrl });
+    // Save Supabase URL to record (stored in cloudinary_url column)
+    await db.update(record.id, { supabaseUrl });
 
     // Check if there is an active preset cover and assign it immediately
     const activeCoverUrl = await db.getPresetCover(userId);
-
     if (activeCoverUrl) {
       await db.update(record.id, { coverUrl: activeCoverUrl });
     }
@@ -253,7 +228,7 @@ bot.on('message', async (msg) => {
     console.log(`Successfully queued and uploaded: ${filename} (Queue ID: ${record.id})`);
     bot.sendMessage(
       chatId,
-      `✅ Media successfully queued and uploaded to Cloudinary!\n` +
+      `✅ Media successfully queued and uploaded!\n` +
       `• Name: ${filename}\n` +
       `• Queue ID: ${record.id}\n` +
       `• Status: pending (Awaiting approval/upload)\n` +

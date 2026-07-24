@@ -36,14 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLogin        = document.getElementById('btn-login');
   const btnLogout       = document.getElementById('btn-logout');
 
-  // Cloud configuration elements
-  const btnCloudConfig  = document.getElementById('btn-cloud-config');
-  const cloudOverlay    = document.getElementById('cloud-overlay');
-  const btnCloseCloud   = document.getElementById('btn-close-cloud');
-  const btnSaveCloud    = document.getElementById('btn-save-cloud');
-  const cloudNameInput  = document.getElementById('cloud-name');
-  const cloudKeyInput   = document.getElementById('cloud-api-key');
-  const cloudSecretInput= document.getElementById('cloud-api-secret');
 
   // Admin panel elements
   const btnAdminPanel   = document.getElementById('btn-admin-panel');
@@ -337,61 +329,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ─── Event Listeners ──────────────────────────────────────────────────
-
-  // Cloud Settings Modal Events
-  btnCloudConfig.addEventListener('click', async () => {
-    // Fetch current config
-    try {
-      const res = await authFetch('/api/cloudinary-config');
-      const data = await res.json();
-      if (data.success && data.config) {
-        cloudNameInput.value = data.config.cloudName || '';
-        cloudKeyInput.value = data.config.apiKey || '';
-        cloudSecretInput.value = data.config.apiSecret || '';
-      } else {
-        cloudNameInput.value = '';
-        cloudKeyInput.value = '';
-        cloudSecretInput.value = '';
-      }
-    } catch (_) {
-      cloudNameInput.value = '';
-      cloudKeyInput.value = '';
-      cloudSecretInput.value = '';
-    }
-    cloudOverlay.classList.remove('hidden');
-  });
-
-  btnCloseCloud.addEventListener('click', () => {
-    cloudOverlay.classList.add('hidden');
-  });
-
-  btnSaveCloud.addEventListener('click', async () => {
-    const cloudName = cloudNameInput.value.trim();
-    const apiKey = cloudKeyInput.value.trim();
-    const apiSecret = cloudSecretInput.value.trim();
-
-    if (!cloudName || !apiKey || !apiSecret) {
-      showToast('Please fill in all Cloudinary settings fields.', 'error');
-      return;
-    }
-
-    try {
-      const res = await authFetch('/api/cloudinary-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cloudName, apiKey, apiSecret })
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast('Cloudinary settings saved successfully!', 'success');
-        cloudOverlay.classList.add('hidden');
-      } else {
-        throw new Error(data.error);
-      }
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  });
 
   btnRefresh.addEventListener('click', () => {
     fetchQueue();
@@ -744,7 +681,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function confirmAndDelete(id) {
     const ok = await showModal({
       title:       'Delete This Media?',
-      message:     'This will permanently remove the clip from the queue and from Cloudinary if it was uploaded. This cannot be undone.',
+      message:     'This will permanently remove the clip from the queue and delete the video file from storage. This cannot be undone.',
       confirmText: 'Delete',
       variant:     'danger'
     });

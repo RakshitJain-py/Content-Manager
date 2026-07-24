@@ -124,12 +124,7 @@
           <h1 class="page-title">Reels Manager</h1>
           <span id="queue-count" class="count-badge">0 items</span>
         </div>
-        <div class="topbar-center">
-          <button id="btn-cloud-config" class="ghost-btn cloud-btn" title="Manage Cloudinary configuration">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            Manage Cloud
-          </button>
-        </div>
+        <div class="topbar-center"></div>
         <div class="topbar-right">
           <button id="btn-refresh" class="ghost-btn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -199,36 +194,7 @@
     </div>
   </div>
 
-  <!-- Cloudinary Config Overlay -->
-  <div id="cloud-overlay" class="modal-overlay hidden">
-    <div class="modal-box" style="max-width: 410px; border-color: rgba(64,93,230,0.25);">
-      <div class="modal-icon-wrap" style="background: linear-gradient(135deg, #405DE6, #833AB4); color: white; box-shadow: 0 4px 16px rgba(64,93,230,0.3);">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-      </div>
-      <h3 class="modal-title" style="font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #405DE6, #833AB4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 6px;">Cloudinary Settings</h3>
-      <p class="modal-message" style="margin-bottom: 20px;">Provide your own Cloudinary variables so that uploads bypass the administrator's account limits.</p>
-      
-      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; text-align: left;">
-        <div>
-          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; display: block;">Cloud Name</label>
-          <input type="text" id="cloud-name" placeholder="Cloud Name" class="field-input" style="padding: 10px 12px; font-size: 13px;">
-        </div>
-        <div>
-          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; display: block;">API Key</label>
-          <input type="text" id="cloud-api-key" placeholder="API Key" class="field-input" style="padding: 10px 12px; font-size: 13px;">
-        </div>
-        <div>
-          <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; display: block;">API Secret</label>
-          <input type="password" id="cloud-api-secret" placeholder="API Secret" class="field-input" style="padding: 10px 12px; font-size: 13px;">
-        </div>
-      </div>
 
-      <div class="modal-actions" style="display: flex; gap: 10px;">
-        <button id="btn-close-cloud" class="ghost-btn" style="flex: 1; padding: 11px; justify-content: center; font-size: 13px;">Cancel</button>
-        <button id="btn-save-cloud" class="gradient-btn" style="flex: 1; padding: 11px; justify-content: center; font-size: 13px;">Save Settings</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Login Overlay -->
   <div id="login-overlay" class="modal-overlay hidden">

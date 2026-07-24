@@ -72,7 +72,7 @@ const db = {
     // Map JS camelCase back to SQL snake_case
     const mappings = {
       status: 'status',
-      cloudinaryUrl: 'cloudinary_url',
+      supabaseUrl: 'cloudinary_url',  // reuse existing DB column
       instagramMediaId: 'instagram_media_id',
       publishedAt: 'published_at',
       coverUrl: 'cover_url',
@@ -278,15 +278,15 @@ const db = {
   async createSession(token, userId) {
     const idStr = String(userId);
     // Delete existing sessions for user to maintain one active session
-    await this.query('DELETE FROM sessions WHERE user_id = $1', [idStr]);
-    await this.query('INSERT INTO sessions (token, user_id) VALUES ($1, $2)', [token, idStr]);
+    await this.query('DELETE FROM cm_sessions WHERE user_id = $1', [idStr]);
+    await this.query('INSERT INTO cm_sessions (token, user_id) VALUES ($1, $2)', [token, idStr]);
   },
 
   async validateSession(token, userId) {
     if (!token || !userId) return false;
     const idStr = String(userId);
     
-    const res = await this.query('SELECT * FROM sessions WHERE token = $1 AND user_id = $2', [token, idStr]);
+    const res = await this.query('SELECT * FROM cm_sessions WHERE token = $1 AND user_id = $2', [token, idStr]);
     if (res.rows.length === 0) return false;
 
     // Admin is always valid if session exists
@@ -300,7 +300,7 @@ const db = {
 
   async deleteSessionsForUser(userId) {
     const idStr = String(userId);
-    await this.query('DELETE FROM sessions WHERE user_id = $1', [idStr]);
+    await this.query('DELETE FROM cm_sessions WHERE user_id = $1', [idStr]);
     // Also remove entirely from allowedUsers on logout
     const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
     if (!adminId || idStr !== String(adminId)) {
@@ -333,8 +333,7 @@ const db = {
     return res.rows.map(u => ({
       userId: u.user_id,
       loginTime: u.login_time,
-      uploadCount: u.upload_count || 0,
-      cloudinary: u.cloudinary ? JSON.parse(u.cloudinary) : null
+      uploadCount: u.upload_count || 0
     }));
   },
 
@@ -353,7 +352,7 @@ const db = {
     await this.query('DELETE FROM media WHERE telegram_user_id = $1', [idStr]);
 
     // 3. Remove active sessions
-    await this.query('DELETE FROM sessions WHERE user_id = $1', [idStr]);
+    await this.query('DELETE FROM cm_sessions WHERE user_id = $1', [idStr]);
   },
 
   async incrementUploadCount(userId) {
@@ -361,50 +360,6 @@ const db = {
     await this.query('UPDATE allowed_users SET upload_count = upload_count + 1 WHERE user_id = $1', [idStr]);
   },
 
-  // ─── Cloudinary Config ────────────────────────────────────────────────
-  async getCloudinaryConfig(userId) {
-    const idStr = String(userId);
-    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
-
-    // Check if admin
-    if (adminId && idStr === String(adminId)) {
-      const res = await this.query('SELECT value FROM system_settings WHERE key = \'admin_cloudinary\'');
-      if (res.rows.length > 0 && res.rows[0].value) {
-        return JSON.parse(res.rows[0].value);
-      }
-      // Fallback to env variables
-      if (process.env.CLOUDINARY_CLOUD_NAME) {
-        return {
-          cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-          apiKey: process.env.CLOUDINARY_API_KEY,
-          apiSecret: process.env.CLOUDINARY_API_SECRET
-        };
-      }
-      return null;
-    }
-
-    const res = await this.query('SELECT cloudinary FROM allowed_users WHERE user_id = $1', [idStr]);
-    if (res.rows.length > 0 && res.rows[0].cloudinary) {
-      return JSON.parse(res.rows[0].cloudinary);
-    }
-    return null;
-  },
-
-  async setCloudinaryConfig(userId, { cloudName, apiKey, apiSecret }) {
-    const idStr = String(userId);
-    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
-    const configStr = JSON.stringify({ cloudName: cloudName.trim(), apiKey: apiKey.trim(), apiSecret: apiSecret.trim() });
-
-    if (adminId && idStr === String(adminId)) {
-      await this.query(`
-        INSERT INTO system_settings (key, value)
-        VALUES ('admin_cloudinary', $1)
-        ON CONFLICT (key) DO UPDATE SET value = $1
-      `, [configStr]);
-    } else {
-      await this.query('UPDATE allowed_users SET cloudinary = $1 WHERE user_id = $2', [configStr, idStr]);
-    }
-  },
 
   // Helper mapping database rows to JS camelCase schema
   mapMediaRow(row) {
@@ -417,7 +372,7 @@ const db = {
       telegramUser: row.telegram_user,
       telegramUserId: row.telegram_user_id,
       status: row.status,
-      cloudinaryUrl: row.cloudinary_url,
+      supabaseUrl: row.cloudinary_url,  // stored in the same DB column, renamed in JS
       instagramMediaId: row.instagram_media_id,
       timestamp: row.timestamp,
       publishedAt: row.published_at,
