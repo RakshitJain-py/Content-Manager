@@ -222,11 +222,10 @@ app.post('/api/post', requireAuth, async (req, res) => {
   for (const item of itemsToPost) {
     await db.update(item.id, { status: 'uploading', error: null });
     try {
-      // Fetch current caption.txt (or fallback to environment variable)
-      let caption = process.env.DEFAULT_CAPTION || 'Default caption #reels';
-      const captionFilePath = paths.caption;
-      if (fs.existsSync(captionFilePath)) {
-        caption = fs.readFileSync(captionFilePath, 'utf8').trim();
+      // Fetch current caption from database (or fallback to environment variable)
+      let caption = await db.getCaption();
+      if (!caption || !caption.trim()) {
+        caption = process.env.DEFAULT_CAPTION || 'Default caption #reels';
       }
 
       // Step 1: Resolve Cloudinary URL
