@@ -229,16 +229,22 @@ app.post('/api/post', requireAuth, async (req, res) => {
         caption = fs.readFileSync(captionFilePath, 'utf8').trim();
       }
 
-      // Retrieve uploader's Cloudinary credentials dynamically
-      const uploaderId = item.telegramUserId || req.telegramUserId;
-      const cloudConfig = await db.getCloudinaryConfig(uploaderId);
-      if (!cloudConfig) {
-        throw new Error('Cloudinary credentials are not configured on the dashboard under "Manage Cloud".');
-      }
+      // Step 1: Resolve Cloudinary URL
+      let cloudinaryUrl = item.cloudinaryUrl;
 
-      // Step 1: Upload to Cloudinary
-      const cloudinaryUrl = await uploadToCloudinary(item.localPath, cloudConfig);
-      await db.update(item.id, { cloudinaryUrl });
+      if (!cloudinaryUrl) {
+        // Fallback: Upload local file to Cloudinary if URL is missing (legacy items)
+        if (!item.localPath) {
+          throw new Error('Local video file path is missing and no Cloudinary URL exists.');
+        }
+        const uploaderId = item.telegramUserId || req.telegramUserId;
+        const cloudConfig = await db.getCloudinaryConfig(uploaderId);
+        if (!cloudConfig) {
+          throw new Error('Cloudinary credentials are not configured on the dashboard under "Manage Cloud".');
+        }
+        cloudinaryUrl = await uploadToCloudinary(item.localPath, cloudConfig);
+        await db.update(item.id, { cloudinaryUrl });
+      }
 
       // Determine coverUrl: item-level first, then preset_cover.txt
       let coverUrl = item.coverUrl || null;

@@ -204,21 +204,38 @@ bot.on('message', async (msg) => {
   }
 
   try {
-    bot.sendMessage(chatId, `📥 Fetching media: "${filename}"...`);
+    bot.sendMessage(chatId, `📥 Fetching and uploading media: "${filename}" to your Cloudinary...`);
     console.log(`Downloading ${filename} (ID: ${fileId}) from Telegram...`);
 
     const downloadedFilePath = await bot.downloadFile(fileId, downloadsDir);
-    const relativePath = 'downloads/' + path.basename(downloadedFilePath);
+
+    // Upload to Cloudinary immediately
+    const uploadResult = await cloudinary.uploader.upload(downloadedFilePath, {
+      cloud_name: cloudConfig.cloudName,
+      api_key: cloudConfig.apiKey,
+      api_secret: cloudConfig.apiSecret,
+      resource_type: 'video',
+      folder: 'reelbot',
+    });
+    const cloudinaryUrl = uploadResult.secure_url;
+
+    // Cleanup local temp file
+    if (fs.existsSync(downloadedFilePath)) {
+      try { fs.unlinkSync(downloadedFilePath); } catch (_) {}
+    }
 
     // Save record to DB
     const record = await db.add({
       id: msg.message_id,
       filename,
-      localPath: relativePath,
+      localPath: null, // No local path needed now
       mediaType,
       telegramUser: username || userId,
       telegramUserId: userId
     });
+
+    // Save Cloudinary URL to record
+    await db.update(record.id, { cloudinaryUrl });
 
     // Check if there is an active preset cover and assign it immediately
     const activeCoverUrl = await db.getPresetCover();
@@ -233,17 +250,17 @@ bot.on('message', async (msg) => {
       await db.incrementUploadCount(userId);
     }
 
-    console.log(`Successfully queued: ${filename} (Status: pending, Queue ID: ${record.id})`);
+    console.log(`Successfully queued and uploaded: ${filename} (Queue ID: ${record.id})`);
     bot.sendMessage(
       chatId,
-      `✅ Media successfully queued!\n` +
+      `✅ Media successfully queued and uploaded to Cloudinary!\n` +
       `• Name: ${filename}\n` +
       `• Queue ID: ${record.id}\n` +
       `• Status: pending (Awaiting approval/upload)\n` +
       `${activeCoverUrl ? '• Cover: Preset cover applied 📸' : '• Cover: No preset cover active (will default to video frame)'}`
     );
   } catch (err) {
-    console.error('Error downloading/saving file:', err);
+    console.error('Error downloading/saving/uploading file:', err);
     bot.sendMessage(chatId, `❌ Failed to download and queue media: ${err.message}`);
   }
 });
