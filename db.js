@@ -217,31 +217,61 @@ const db = {
     await this.query('DELETE FROM system_settings WHERE key = \'current_otp\'');
   },
 
-  // ─── Preset Cover and Caption ─────────────────────────────────────────
-  async getPresetCover() {
-    const res = await this.query('SELECT value FROM system_settings WHERE key = \'preset_cover_url\'');
-    return res.rows.length > 0 ? res.rows[0].value : '';
+  // ─── Preset Cover and Caption (Isolated per User) ────────────────────
+  async getPresetCover(userId) {
+    const idStr = String(userId);
+    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+
+    if (adminId && idStr === String(adminId)) {
+      const res = await this.query('SELECT value FROM system_settings WHERE key = \'admin_preset_cover_url\'');
+      return res.rows.length > 0 ? res.rows[0].value : '';
+    }
+
+    const res = await this.query('SELECT preset_cover_url FROM allowed_users WHERE user_id = $1', [idStr]);
+    return res.rows.length > 0 && res.rows[0].preset_cover_url ? res.rows[0].preset_cover_url : '';
   },
 
-  async setPresetCover(url) {
-    await this.query(`
-      INSERT INTO system_settings (key, value)
-      VALUES ('preset_cover_url', $1)
-      ON CONFLICT (key) DO UPDATE SET value = $1
-    `, [String(url)]);
+  async setPresetCover(userId, url) {
+    const idStr = String(userId);
+    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+
+    if (adminId && idStr === String(adminId)) {
+      await this.query(`
+        INSERT INTO system_settings (key, value)
+        VALUES ('admin_preset_cover_url', $1)
+        ON CONFLICT (key) DO UPDATE SET value = $1
+      `, [String(url)]);
+    } else {
+      await this.query('UPDATE allowed_users SET preset_cover_url = $1 WHERE user_id = $2', [String(url), idStr]);
+    }
   },
 
-  async getCaption() {
-    const res = await this.query('SELECT value FROM system_settings WHERE key = \'caption\'');
-    return res.rows.length > 0 ? res.rows[0].value : '';
+  async getCaption(userId) {
+    const idStr = String(userId);
+    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+
+    if (adminId && idStr === String(adminId)) {
+      const res = await this.query('SELECT value FROM system_settings WHERE key = \'admin_caption\'');
+      return res.rows.length > 0 ? res.rows[0].value : '';
+    }
+
+    const res = await this.query('SELECT caption FROM allowed_users WHERE user_id = $1', [idStr]);
+    return res.rows.length > 0 && res.rows[0].caption ? res.rows[0].caption : '';
   },
 
-  async setCaption(caption) {
-    await this.query(`
-      INSERT INTO system_settings (key, value)
-      VALUES ('caption', $1)
-      ON CONFLICT (key) DO UPDATE SET value = $1
-    `, [String(caption)]);
+  async setCaption(userId, caption) {
+    const idStr = String(userId);
+    const adminId = process.env.ALLOWED_TELEGRAM_USER_ID;
+
+    if (adminId && idStr === String(adminId)) {
+      await this.query(`
+        INSERT INTO system_settings (key, value)
+        VALUES ('admin_caption', $1)
+        ON CONFLICT (key) DO UPDATE SET value = $1
+      `, [String(caption)]);
+    } else {
+      await this.query('UPDATE allowed_users SET caption = $1 WHERE user_id = $2', [String(caption), idStr]);
+    }
   },
 
   // ─── Sessions ─────────────────────────────────────────────────────────

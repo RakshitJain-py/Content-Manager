@@ -325,7 +325,7 @@ app.post('/api/post', requireAuth, async (req, res) => {
 // 4. Get active caption
 app.get('/api/caption', requireAuth, async (req, res) => {
   try {
-    const caption = await db.getCaption();
+    const caption = await db.getCaption(req.telegramUserId);
     res.json({ caption: caption || process.env.DEFAULT_CAPTION || '' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -337,7 +337,7 @@ app.post('/api/caption', requireAuth, async (req, res) => {
   const { caption } = req.body;
   if (caption === undefined) return res.status(400).json({ error: 'Missing caption field' });
   try {
-    await db.setCaption(caption);
+    await db.setCaption(req.telegramUserId, caption);
     res.json({ success: true, caption });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -347,7 +347,7 @@ app.post('/api/caption', requireAuth, async (req, res) => {
 // 6. Get preset cover thumbnail URL
 app.get('/api/preset-cover', requireAuth, async (req, res) => {
   try {
-    const coverUrl = await db.getPresetCover();
+    const coverUrl = await db.getPresetCover(req.telegramUserId);
     res.json({ coverUrl });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -359,7 +359,7 @@ app.post('/api/preset-cover', requireAuth, async (req, res) => {
   const { coverUrl } = req.body;
   if (coverUrl === undefined) return res.status(400).json({ error: 'Missing coverUrl field' });
   try {
-    await db.setPresetCover(coverUrl);
+    await db.setPresetCover(req.telegramUserId, coverUrl);
     res.json({ success: true, coverUrl });
   } catch (err) {
     res.status(500).json({ error: err.message });

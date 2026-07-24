@@ -138,10 +138,10 @@ bot.on('message', async (msg) => {
       const coverUrl = uploadResult.secure_url;
 
       // Save as active preset cover (also save in Supabase so it persists)
-      await db.setPresetCover(coverUrl);
+      await db.setPresetCover(userId, coverUrl);
 
       // Backfill all items in the queue (pending/approved) that do not have a cover
-      const allMedia = await db.getAll();
+      const allMedia = await db.getAll(userId);
       const allPendingOrApproved = allMedia.filter(m => (m.status === 'pending' || m.status === 'approved') && !m.coverUrl);
       for (const item of allPendingOrApproved) {
         await db.update(item.id, { coverUrl });
@@ -238,7 +238,7 @@ bot.on('message', async (msg) => {
     await db.update(record.id, { cloudinaryUrl });
 
     // Check if there is an active preset cover and assign it immediately
-    const activeCoverUrl = await db.getPresetCover();
+    const activeCoverUrl = await db.getPresetCover(userId);
 
     if (activeCoverUrl) {
       await db.update(record.id, { coverUrl: activeCoverUrl });
