@@ -253,17 +253,8 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       formData.append("file", file);
 
       try {
-        const response = await fetch("/api/media/upload", {
-          method: "POST",
-          body: formData,
-        });
+        const res = await uploadMediaAction(formData);
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error || `Upload failed with status ${response.status}`);
-        }
-
-        const res = await response.json();
         if (res.success && res.data) {
           const newItem: MediaItem = {
             id: res.data.id,
