@@ -195,7 +195,7 @@ export function SiteMenu({ delayed = false }: SiteMenuProps) {
               <Search className="absolute left-3 top-3 h-4 w-4 text-neutral-500" />
               <input
                 type="text"
-                placeholder="Search user email..."
+                placeholder="Search email or username (e.g. user123456)..."
                 value={searchQuery}
                 onChange={(e) => handleSearchUsers(e.target.value)}
                 className="w-full rounded-lg border border-neutral-800 bg-neutral-900 pl-10 pr-4 py-2.5 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-neutral-600"
@@ -221,8 +221,9 @@ export function SiteMenu({ delayed = false }: SiteMenuProps) {
                   className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-900/40 p-3"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-semibold text-neutral-200">{user.email}</p>
-                    <p className="text-[10px] text-neutral-500 font-mono">
+                    <p className="truncate text-xs font-semibold text-neutral-200">{user.username}</p>
+                    <p className="truncate text-[10px] text-neutral-500">{user.email}</p>
+                    <p className="text-[9px] text-neutral-600 font-mono mt-0.5">
                       Joined: {new Date(user.createdAt).toLocaleDateString()}
                     </p>
                   </div>

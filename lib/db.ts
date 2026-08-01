@@ -38,15 +38,38 @@ export const db = {
   },
 
   async searchUsers(searchQuery: string) {
+    // Helper to generate dynamic username matching the frontend useSession logic
+    const emailToUsername = (email: string): string => {
+      let hash = 0;
+      for (let i = 0; i < email.length; i++) {
+        hash = (hash * 31 + email.charCodeAt(i)) >>> 0;
+      }
+      return `user${String(hash).slice(0, 6).padStart(6, "0")}`;
+    };
+
     const res = await this.query(
       `SELECT id, email, access_granted as "accessGranted", created_at as "createdAt"
-       FROM users 
-       WHERE email ILIKE $1 
-       ORDER BY email ASC 
-       LIMIT 50`,
-      [`%${searchQuery.toLowerCase().trim()}%`]
+       FROM users`
     );
-    return res.rows;
+
+    const term = searchQuery.toLowerCase().trim();
+
+    const mapped = res.rows.map(row => {
+      const username = emailToUsername(row.email);
+      return {
+        id: row.id,
+        email: row.email,
+        username,
+        accessGranted: row.accessGranted,
+        createdAt: row.createdAt
+      };
+    });
+
+    if (!term) return mapped.slice(0, 50);
+
+    return mapped
+      .filter(u => u.email.toLowerCase().includes(term) || u.username.toLowerCase().includes(term))
+      .slice(0, 50);
   },
 
   async updateUserAccess(email: string, accessGranted: boolean) {
