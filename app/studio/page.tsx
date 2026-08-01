@@ -101,6 +101,16 @@ export default function StudioPage() {
           selectedIds={accountsState.selectedIds}
           onToggle={accountsState.toggleAccount}
           onAddAccount={() => setAddAccountOpen(true)}
+          onRemove={(id) => {
+            toast.promise(
+              accountsState.removeAccount(id),
+              {
+                loading: "Disconnecting account...",
+                success: "Account disconnected successfully!",
+                error: (err) => err.message || "Failed to disconnect account",
+              }
+            );
+          }}
         />
 
         <main className="min-w-0 flex-1">
