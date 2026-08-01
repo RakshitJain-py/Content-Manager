@@ -181,3 +181,47 @@ export async function getCurrentSession(): Promise<AuthResponse | null> {
     return null;
   }
 }
+
+/**
+ * Admin action: Search users by email/username
+ */
+export async function searchUsersAction(query: string): Promise<{ success: boolean; users?: any[]; error?: string }> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || session.role !== "admin") {
+      return { success: false, error: "Access denied. Admins only." };
+    }
+
+    const users = await db.searchUsers(query);
+    return { success: true, users };
+  } catch (err: any) {
+    console.error("searchUsersAction error:", err);
+    return { success: false, error: err.message || "Failed to search users" };
+  }
+}
+
+/**
+ * Admin action: Grant or revoke user access
+ */
+export async function updateUserAccessAction(email: string, accessGranted: boolean): Promise<{ success: boolean; user?: any; error?: string }> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || session.role !== "admin") {
+      return { success: false, error: "Access denied. Admins only." };
+    }
+
+    if (!email) {
+      return { success: false, error: "Email is required." };
+    }
+
+    const updated = await db.updateUserAccess(email, accessGranted);
+    if (!updated) {
+      return { success: false, error: "User not found." };
+    }
+
+    return { success: true, user: updated };
+  } catch (err: any) {
+    console.error("updateUserAccessAction error:", err);
+    return { success: false, error: err.message || "Failed to update user access" };
+  }
+}

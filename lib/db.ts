@@ -37,6 +37,29 @@ export const db = {
     return res.rows[0] || null;
   },
 
+  async searchUsers(searchQuery: string) {
+    const res = await this.query(
+      `SELECT id, email, access_granted as "accessGranted", created_at as "createdAt"
+       FROM users 
+       WHERE email ILIKE $1 
+       ORDER BY email ASC 
+       LIMIT 50`,
+      [`%${searchQuery.toLowerCase().trim()}%`]
+    );
+    return res.rows;
+  },
+
+  async updateUserAccess(email: string, accessGranted: boolean) {
+    const res = await this.query(
+      `UPDATE users 
+       SET access_granted = $1 
+       WHERE email = $2 
+       RETURNING id, email, access_granted as "accessGranted"`,
+      [accessGranted, email.toLowerCase().trim()]
+    );
+    return res.rows[0] || null;
+  },
+
   async getAdminByTelegramId(telegramId: string) {
     const res = await this.query(
       `SELECT * FROM admins WHERE telegram_id = $1`,
