@@ -120,7 +120,7 @@ export async function getMediaAction(): Promise<ActionResponse<any[]>> {
     }
 
     const media = await db.getAllMedia(session.ownerId, session.role);
-    const activeMedia = media.filter(m => m.status !== "published");
+    const activeMedia = media.filter(m => m && m.status !== "published");
     return { success: true, data: activeMedia };
   } catch (err: any) {
     console.error("getMediaAction error:", err);
