@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type ContentType, type MediaItem } from "@/types/content";
-import { getMediaAction, uploadMediaAction, removeMediaAction } from "@/app/actions/studio";
+import { getMediaAction, uploadMediaAction, removeMediaAction, getSignedUploadUrlAction, registerUploadedMediaAction } from "@/app/actions/studio";
 import { getCurrentSession } from "@/app/actions/auth";
 import { toast } from "sonner";
 
@@ -253,20 +253,40 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       formData.append("file", file);
 
       try {
-        const res = await uploadMediaAction(formData);
-
-        if (res.success && res.data) {
-          const newItem: MediaItem = {
-            id: res.data.id,
-            name: res.data.filename || file.name,
-            url: res.data.cloudinaryUrl || "",
-            kind: res.data.mediaType === "video" ? "video" : "image",
-          };
-          setMedia((list) => [newItem, ...list]);
-        } else {
-          console.error("Failed to upload file:", res.error);
-          toast.error(`Failed to upload "${file.name}": ${res.error}`);
+        // 1. Get signed upload URL
+        const signedRes = await getSignedUploadUrlAction(file.name, file.type);
+        if (!signedRes.success || !signedRes.data) {
+          throw new Error(signedRes.error || "Failed to generate upload credentials");
         }
+
+        const { signedUrl, id, publicUrl, mediaType } = signedRes.data;
+
+        // 2. Upload file directly from browser to Supabase Storage
+        const uploadResponse = await fetch(signedUrl, {
+          method: "PUT",
+          body: file,
+          headers: {
+            "Content-Type": file.type,
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Storage upload failed with status ${uploadResponse.status}`);
+        }
+
+        // 3. Register the uploaded media metadata in PostgreSQL
+        const registerRes = await registerUploadedMediaAction(id, file.name, mediaType, publicUrl);
+        if (!registerRes.success || !registerRes.data) {
+          throw new Error(registerRes.error || "Failed to register uploaded file in database");
+        }
+
+        const newItem: MediaItem = {
+          id: registerRes.data.id,
+          name: registerRes.data.filename || file.name,
+          url: registerRes.data.cloudinaryUrl || "",
+          kind: registerRes.data.mediaType === "video" ? "video" : "image",
+        };
+        setMedia((list) => [newItem, ...list]);
       } catch (err: any) {
         console.error(`Error uploading file ${file.name}:`, err);
         toast.error(`Error uploading "${file.name}": ${err.message || err}`);

@@ -112,3 +112,17 @@ export async function clearThumbnailFolder(role: string, ownerId: string): Promi
     }
   }
 }
+
+/**
+ * Creates a signed upload URL for direct client uploads.
+ */
+export async function createSignedUploadUrl(storagePath: string) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUploadUrl(storagePath);
+  if (error) {
+    throw new Error(`Failed to create signed upload URL: ${error.message}`);
+  }
+  return data;
+}

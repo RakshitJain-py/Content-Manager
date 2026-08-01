@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { getCurrentSession } from "./auth";
-import { uploadFile, deleteFile, resolveContentType, resolveMediaType } from "@/lib/storage";
+import { uploadFile, deleteFile, resolveContentType, resolveMediaType, createSignedUploadUrl } from "@/lib/storage";
 
 export interface ActionResponse<T> {
   success: boolean;
@@ -301,5 +301,86 @@ export async function updateAdminTelegramAction(username: string): Promise<Actio
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update admin settings" };
+  }
+}
+
+/**
+ * Create a signed upload URL for uploading files directly from client to Supabase Storage.
+ */
+export async function getSignedUploadUrlAction(filename: string, mimeType: string): Promise<ActionResponse<{ signedUrl: string; token: string; path: string; id: string; publicUrl: string; mediaType: "image" | "video" }>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId || !session.role) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const id = Math.random().toString(36).slice(2, 9);
+    const fileExtension = filename.split(".").pop()?.toLowerCase() ?? "bin";
+    
+    if (fileExtension === "webp") {
+      return {
+        success: false,
+        error: "WebP images are not supported by the Instagram Graph API. Please upload JPG/PNG images or MP4/MOV videos instead."
+      };
+    }
+
+    const storagePath = `uploads/${session.ownerId}/${id}.${fileExtension}`;
+    const contentType = resolveContentType(mimeType, filename);
+    const mediaType = resolveMediaType(contentType);
+
+    // Call Supabase storage to create the signed upload url
+    const result = await createSignedUploadUrl(storagePath);
+    
+    // Generate the public URL
+    const bucket = "Media";
+    const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${storagePath}`;
+
+    return {
+      success: true,
+      data: {
+        signedUrl: result.signedUrl,
+        token: result.token,
+        path: result.path,
+        id,
+        publicUrl,
+        mediaType,
+      }
+    };
+  } catch (err: any) {
+    console.error("getSignedUploadUrlAction error:", err);
+    return { success: false, error: err.message || "Failed to generate upload URL" };
+  }
+}
+
+/**
+ * Register the successfully uploaded media file metadata in the Postgres database.
+ */
+export async function registerUploadedMediaAction(
+  id: string,
+  filename: string,
+  mediaType: "image" | "video",
+  publicUrl: string
+): Promise<ActionResponse<any>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId || !session.role) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    // Register in DB
+    await db.addMedia({
+      id,
+      filename,
+      mediaType,
+      ownerId: session.ownerId,
+      ownerRole: session.role
+    });
+
+    // Update with the URL column
+    const updatedItem = await db.updateMedia(id, { cloudinaryUrl: publicUrl });
+    return { success: true, data: updatedItem };
+  } catch (err: any) {
+    console.error("registerUploadedMediaAction error:", err);
+    return { success: false, error: err.message || "Failed to register uploaded media" };
   }
 }
