@@ -34,8 +34,15 @@ pool.query(`
 pool.query(`
   ALTER TABLE media ADD COLUMN IF NOT EXISTS caption TEXT DEFAULT '';
   ALTER TABLE media ADD COLUMN IF NOT EXISTS permalink TEXT DEFAULT '';
+  CREATE TABLE IF NOT EXISTS system_settings (
+    key VARCHAR(255) PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  INSERT INTO system_settings (key, value) 
+  VALUES ('admin_telegram_username', '@admin_placeholder') 
+  ON CONFLICT (key) DO NOTHING;
 `).then(() => {
-  console.log("[DB] Media table columns ensured.");
+  console.log("[DB] Media table columns and system_settings table ensured.");
 }).catch((err) => {
   console.error("[DB] Media migration error:", err.message);
 });
@@ -529,5 +536,17 @@ export const db = {
       caption: row.caption || "",
       permalink: row.permalink || ""
     };
+  },
+
+  async getSystemSetting(key: string): Promise<string | null> {
+    const res = await this.query("SELECT value FROM system_settings WHERE key = $1", [key]);
+    return res.rows.length > 0 ? res.rows[0].value : null;
+  },
+
+  async setSystemSetting(key: string, value: string): Promise<void> {
+    await this.query(
+      "INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+      [key, value]
+    );
   }
 };

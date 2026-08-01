@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils";
 import { MENU_LINKS, ROUTES } from "@/lib/routes";
 import { useSession } from "@/hooks/useSession";
 import { signOut, searchUsersAction, updateUserAccessAction } from "@/app/actions/auth";
+import { getAdminTelegramAction, updateAdminTelegramAction } from "@/app/actions/studio";
 import { Modal } from "@/components/common/Modal";
-import { Users, Search, CheckCircle2, XCircle } from "lucide-react";
+import { Users, Search, CheckCircle2, XCircle, Settings, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export interface SiteMenuProps {
@@ -18,6 +19,9 @@ export interface SiteMenuProps {
 export function SiteMenu({ delayed = false }: SiteMenuProps) {
   const [open, setOpen] = useState(false);
   const [manageUsersOpen, setManageUsersOpen] = useState(false);
+  const [adminSettingsOpen, setAdminSettingsOpen] = useState(false);
+  const [telegramInput, setTelegramInput] = useState("");
+  const [savingSettings, setSavingSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [foundUsers, setFoundUsers] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
@@ -59,6 +63,42 @@ export function SiteMenu({ delayed = false }: SiteMenuProps) {
       toast.error(err.message || "Failed to update access");
     }
   }, []);
+
+  const handleOpenAdminSettings = useCallback(async () => {
+    setOpen(false);
+    setAdminSettingsOpen(true);
+    try {
+      const res = await getAdminTelegramAction();
+      if (res.success && res.data) {
+        setTelegramInput(res.data);
+      }
+    } catch (err: any) {
+      toast.error("Failed to load admin settings.");
+    }
+  }, []);
+
+  const handleSaveAdminSettings = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!telegramInput.trim()) {
+      toast.error("Telegram username cannot be empty.");
+      return;
+    }
+    setSavingSettings(true);
+    try {
+      const res = await updateAdminTelegramAction(telegramInput);
+      if (res.success) {
+        toast.success("Telegram username updated successfully!");
+        setAdminSettingsOpen(false);
+        router.refresh();
+      } else {
+        toast.error(res.error || "Failed to save username");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save settings");
+    } finally {
+      setSavingSettings(false);
+    }
+  }, [telegramInput, router]);
 
   const handleLogout = async () => {
     await signOut();
@@ -145,20 +185,33 @@ export function SiteMenu({ delayed = false }: SiteMenuProps) {
 
         {/* Manage Users (Admin only) */}
         {!loading && session?.role === "admin" && (
-          <button
-            onClick={() => {
-              setOpen(false);
-              setManageUsersOpen(true);
-              handleSearchUsers(""); // initial load
-            }}
-            className="group flex items-center justify-between border-b border-neutral-900 py-4 text-lg font-medium text-neutral-200 transition-colors hover:text-white text-left w-full cursor-pointer"
-          >
-            <span className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-pink-500" />
-              Manage Users
-            </span>
-            <span className="text-neutral-600 transition-transform group-hover:translate-x-1">→</span>
-          </button>
+          <>
+            <button
+              onClick={() => {
+                setOpen(false);
+                setManageUsersOpen(true);
+                handleSearchUsers(""); // initial load
+              }}
+              className="group flex items-center justify-between border-b border-neutral-900 py-4 text-lg font-medium text-neutral-200 transition-colors hover:text-white text-left w-full cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-pink-500" />
+                Manage Users
+              </span>
+              <span className="text-neutral-600 transition-transform group-hover:translate-x-1">→</span>
+            </button>
+
+            <button
+              onClick={handleOpenAdminSettings}
+              className="group flex items-center justify-between border-b border-neutral-900 py-4 text-lg font-medium text-neutral-200 transition-colors hover:text-white text-left w-full cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <Settings className="h-4 w-4 text-blue-500" />
+                System Settings
+              </span>
+              <span className="text-neutral-600 transition-transform group-hover:translate-x-1">→</span>
+            </button>
+          </>
         )}
 
         {MENU_LINKS.filter((link) => {
@@ -258,7 +311,56 @@ export function SiteMenu({ delayed = false }: SiteMenuProps) {
                 </div>
               ))}
             </div>
+            <div className="mt-6 flex justify-end gap-2 border-t border-neutral-900 pt-4">
+              <button
+                type="button"
+                onClick={() => setManageUsersOpen(false)}
+                className="rounded-lg border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-900 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
+        </Modal>
+      )}
+
+      {adminSettingsOpen && (
+        <Modal title="System Settings" onClose={() => setAdminSettingsOpen(false)}>
+          <form onSubmit={handleSaveAdminSettings} className="space-y-4">
+            <div>
+              <label className="block mb-2 font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">
+                Admin Telegram Username
+              </label>
+              <input
+                type="text"
+                value={telegramInput}
+                onChange={(e) => setTelegramInput(e.target.value)}
+                placeholder="@username"
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-sm text-white outline-none focus:border-neutral-600"
+              />
+              <p className="mt-1.5 text-[10px] text-neutral-500 leading-normal">
+                This Telegram username is displayed publicly on the contact/pricing page so clients can request access directly.
+              </p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2 border-t border-neutral-900 pt-4">
+              <button
+                type="button"
+                onClick={() => setAdminSettingsOpen(false)}
+                className="rounded-lg border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-900 px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingSettings}
+                className="ig-gradient rounded-lg px-5 py-2 text-xs font-bold text-white cursor-pointer hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              >
+                {savingSettings && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Save Changes
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </>

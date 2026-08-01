@@ -1,5 +1,5 @@
-import type { Metadata } from "next";
 import { SiteMenu } from "@/components/SiteMenu";
+import { db } from "@/lib/db";
 
 export const metadata: Metadata = {
   title: "Contact Admin — Content Manager",
@@ -10,11 +10,10 @@ export const metadata: Metadata = {
   },
 };
 
-/** TODO: Replace with your actual Telegram username */
-const ADMIN_TELEGRAM = "@admin_placeholder";
-
 /** Contact page — app/contact/page.tsx */
-export default function ContactPage() {
+export default async function ContactPage() {
+  const adminTelegram = (await db.getSystemSetting("admin_telegram_username")) || "@admin_placeholder";
+
   return (
     <main className="relative min-h-screen bg-[#0a0a0a] text-white">
       <SiteMenu />
@@ -28,9 +27,9 @@ export default function ContactPage() {
           <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">
             Telegram ID
           </span>
-          <p className="mt-2 text-xl font-semibold">{ADMIN_TELEGRAM}</p>
+          <p className="mt-2 text-xl font-semibold">{adminTelegram}</p>
           <a
-            href={`https://t.me/${ADMIN_TELEGRAM.replace("@", "")}`}
+            href={`https://t.me/${adminTelegram.replace("@", "")}`}
             target="_blank"
             rel="noopener noreferrer"
             className="ig-gradient mt-6 flex w-full items-center justify-center rounded-lg px-6 py-3.5 font-mono text-xs font-bold uppercase tracking-[0.2em] text-white transition-transform hover:scale-[1.02]"

@@ -274,3 +274,32 @@ export async function getPublishHistoryAction(): Promise<ActionResponse<any[]>> 
     return { success: false, error: err.message || "Failed to fetch publish history" };
   }
 }
+
+/**
+ * Get admin telegram username setting.
+ */
+export async function getAdminTelegramAction(): Promise<ActionResponse<string>> {
+  try {
+    const val = await db.getSystemSetting("admin_telegram_username");
+    return { success: true, data: val || "@admin_placeholder" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch admin settings" };
+  }
+}
+
+/**
+ * Update admin telegram username setting. Restricted to admin role.
+ */
+export async function updateAdminTelegramAction(username: string): Promise<ActionResponse<void>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || session.role !== "admin") {
+      return { success: false, error: "Unauthorized" };
+    }
+    const cleanUsername = username.trim().startsWith("@") ? username.trim() : `@${username.trim()}`;
+    await db.setSystemSetting("admin_telegram_username", cleanUsername);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update admin settings" };
+  }
+}
