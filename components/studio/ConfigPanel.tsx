@@ -199,43 +199,15 @@ export function ConfigPanel({
             </div>
           )}
 
-          {contentType !== "story" && (
+          {contentType === "post" && (
             <>
               <div className="space-y-2">
                 <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">Settings</p>
-                {contentType === "reel" && (
-                  <>
-                    <ToggleRow
-                      label="Hide likes and views"
-                      checked={options.hideLikes}
-                      onChange={(val) => onOptionToggle?.("hideLikes", val)}
-                    />
-                    <ToggleRow
-                      label="Share to feed"
-                      checked={options.shareToFeed}
-                      onChange={(val) => onOptionToggle?.("shareToFeed", val)}
-                    />
-                    <ToggleRow
-                      label="Allow remixing"
-                      checked={options.allowRemixing}
-                      onChange={(val) => onOptionToggle?.("allowRemixing", val)}
-                    />
-                  </>
-                )}
-                {contentType === "post" && (
-                  <>
-                    <ToggleRow
-                      label="Hide like counts"
-                      checked={options.hideLikes}
-                      onChange={(val) => onOptionToggle?.("hideLikes", val)}
-                    />
-                    <ToggleRow
-                      label="Turn off commenting"
-                      checked={options.disableComments}
-                      onChange={(val) => onOptionToggle?.("disableComments", val)}
-                    />
-                  </>
-                )}
+                <ToggleRow
+                  label="Turn off commenting"
+                  checked={options.disableComments}
+                  onChange={(val) => onOptionToggle?.("disableComments", val)}
+                />
               </div>
 
               <button
