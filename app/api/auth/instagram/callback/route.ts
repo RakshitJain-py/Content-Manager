@@ -75,20 +75,21 @@ export async function GET(request: NextRequest) {
 
     const longLivedToken = longTokenData.access_token;
 
-    // 4. Fetch Instagram profile username
-    console.log("[OAuth Callback] Fetching Instagram profile username...");
-    const meRes = await fetch(`https://graph.instagram.com/me?fields=username&access_token=${longLivedToken}`);
+    // 4. Fetch Instagram profile username and real user_id (starts with 1784)
+    console.log("[OAuth Callback] Fetching Instagram profile username and actual user_id...");
+    const meRes = await fetch(`https://graph.instagram.com/me?fields=user_id,username&access_token=${longLivedToken}`);
     const meData = await meRes.json();
     if (meData.error) {
       throw new Error(`Failed to fetch profile details: ${JSON.stringify(meData.error)}`);
     }
 
-    const username = meData.username || `ig_${instagramUserId}`;
+    const realInstagramUserId = meData.user_id || String(instagramUserId);
+    const username = meData.username || `ig_${realInstagramUserId}`;
 
     // 5. Store in database as a draft (isActive = false)
-    console.log(`[OAuth Callback] Storing draft account: ${username} (id=${instagramUserId})`);
+    console.log(`[OAuth Callback] Storing draft account: ${username} (id=${realInstagramUserId})`);
     await db.addAccount({
-      id: String(instagramUserId),
+      id: String(realInstagramUserId),
       name: username, // Removed leading @ prefix
       ownerId: session.ownerId,
       ownerRole: session.role,
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 6. Redirect back to Studio to let the user review and confirm
-    return NextResponse.redirect(`${siteUrl}/studio?oauth_success=true&accountId=${instagramUserId}`);
+    return NextResponse.redirect(`${siteUrl}/studio?oauth_success=true&accountId=${realInstagramUserId}`);
   } catch (err: any) {
     console.error("[OAuth Callback] Process failed:", err);
     return NextResponse.redirect(`${siteUrl}/studio?oauth_error=${encodeURIComponent(err.message || "Failed connecting account")}`);

@@ -258,6 +258,12 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       if (!data.success) {
         throw new Error(data.error || "Publish failed");
       }
+      
+      const itemResult = data.results?.find((r: any) => r.id === id);
+      if (itemResult && !itemResult.success) {
+        throw new Error(itemResult.error || "Failed to publish to Instagram");
+      }
+
       setMedia((list) => list.filter((m) => m.id !== id));
       setSelectedIds((ids) => ids.filter((x) => x !== id));
       return data;
@@ -305,6 +311,18 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       if (!data.success) {
         throw new Error(data.error || "Publish batch failed");
       }
+
+      const failed = data.results?.filter((r: any) => !r.success) || [];
+      if (failed.length > 0) {
+        const failedIds = failed.map((f: any) => f.id);
+        const succeededIds = selectedIds.filter((sid) => !failedIds.includes(sid));
+
+        setMedia((list) => list.filter((m) => !succeededIds.includes(m.id)));
+        setSelectedIds(failedIds); // Keep only failed items selected
+
+        throw new Error(`${failed.length} item(s) failed to publish. Check errors in details.`);
+      }
+
       setMedia((list) => list.filter((m) => !selectedIds.includes(m.id)));
       setSelectedIds([]);
       return data;
