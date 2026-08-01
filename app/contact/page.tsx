@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { SiteMenu } from "@/components/SiteMenu";
 import { db } from "@/lib/db";
 
