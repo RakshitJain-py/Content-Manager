@@ -28,18 +28,20 @@ export async function createImageContainer(
   const url = `${GRAPH_BASE}/${userId}/media`;
   
   const params: Record<string, string> = {
-    media_type: mediaType,
     image_url: imageUrl,
     access_token: accessToken,
   };
 
-  if (mediaType === "POST") {
+  if (mediaType === "STORY") {
+    params.media_type = "STORY";
+    if (opts.storyLink) {
+      // Story link attachment or interactive sticker support
+      params.story_link_sticker_url = opts.storyLink;
+    }
+  } else if (mediaType === "POST") {
     if (opts.caption) params.caption = opts.caption;
     if (opts.hideLikes) params.hide_likes = "true";
     if (opts.disableComments) params.comments_disabled = "true";
-  } else if (mediaType === "STORY" && opts.storyLink) {
-    // Story link attachment or interactive sticker support
-    params.story_link_sticker_url = opts.storyLink;
   }
 
   const searchParams = new URLSearchParams(params);
