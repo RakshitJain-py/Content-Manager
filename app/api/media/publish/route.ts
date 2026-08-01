@@ -102,7 +102,10 @@ export async function POST(request: Request) {
           try {
             permalink = await getPermalink(publishedMediaId, account.accessToken);
           } catch (_) {}
-          await updateMediaSettings(publishedMediaId, account.accessToken, { disableComments: options.disableComments });
+          await updateMediaSettings(publishedMediaId, account.accessToken, { 
+            disableComments: options.disableComments, 
+            hideLikes: options.hideLikes 
+          });
 
           // 5. Mark all items as published; store permalink on the first item
           for (let i = 0; i < validItems.length; i++) {
@@ -223,6 +226,11 @@ export async function POST(request: Request) {
             await waitForContainerReady(containerId, account.accessToken);
             const publishedMediaId = await publishContainer(containerId, account.id, account.accessToken);
             publishResults.push(`${account.name}: ${publishedMediaId}`);
+
+            await updateMediaSettings(publishedMediaId, account.accessToken, { 
+              disableComments: options.disableComments, 
+              hideLikes: options.hideLikes 
+            });
 
             const permalink = await getPermalink(publishedMediaId, account.accessToken);
             if (permalink) {
