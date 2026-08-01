@@ -53,7 +53,7 @@ export async function createCarouselContainer(
     caption,
     access_token: accessToken,
   };
-  if (opts.hideLikes) params.hide_likes = "true";
+  if (opts.hideLikes) params.hide_like_and_view_counts = "true";
   if (opts.disableComments) params.comments_disabled = "true";
   const searchParams = new URLSearchParams(params);
   console.log(`[IG API] Creating carousel container with ${childIds.length} children on user ${userId}...`);
@@ -100,7 +100,7 @@ export async function createImageContainer(
     }
   } else if (mediaType === "POST") {
     if (opts.caption) params.caption = opts.caption;
-    if (opts.hideLikes) params.hide_likes = "true";
+    if (opts.hideLikes) params.hide_like_and_view_counts = "true";
     if (opts.disableComments) params.comments_disabled = "true";
   }
 
