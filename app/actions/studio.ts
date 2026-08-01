@@ -1,0 +1,244 @@
+"use server";
+
+import { cookies } from "next/headers";
+import { db } from "@/lib/db";
+import { getCurrentSession } from "./auth";
+import { uploadFile, deleteFile, resolveContentType, resolveMediaType } from "@/lib/storage";
+
+export interface ActionResponse<T> {
+  success: boolean;
+  error?: string;
+  data?: T;
+}
+
+/**
+ * Fetch all accounts. Return empty list if not logged in.
+ */
+export async function getAccountsAction(): Promise<ActionResponse<any[]>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId) {
+      // Allow guest users to see empty list
+      return { success: true, data: [] };
+    }
+
+    const accounts = await db.getAccounts(session.ownerId, session.role);
+    return { success: true, data: accounts };
+  } catch (err: any) {
+    console.error("getAccountsAction error:", err);
+    return { success: false, error: err.message || "Failed to fetch accounts" };
+  }
+}
+
+/**
+ * Add a new Instagram account. Restricted to logged-in users/admins.
+ */
+export async function addAccountAction(data: { id: string; name: string; accessToken: string }): Promise<ActionResponse<any>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId || !session.role) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const account = await db.addAccount({
+      id: data.id,
+      name: data.name,
+      ownerId: session.ownerId,
+      ownerRole: session.role,
+      accessToken: data.accessToken
+    });
+    return { success: true, data: account };
+  } catch (err: any) {
+    console.error("addAccountAction error:", err);
+    return { success: false, error: err.message || "Failed to add account" };
+  }
+}
+
+/**
+ * Confirm and activate an Instagram account. Restricted to owner or admin.
+ */
+export async function confirmAccountAction(id: string, name: string): Promise<ActionResponse<any>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const account = await db.getAccountById(id);
+    if (!account) {
+      return { success: false, error: "Account not found" };
+    }
+
+    if (session.role !== "admin" && account.ownerId !== session.ownerId) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const updated = await db.updateAccount(id, { isActive: true, name });
+    return { success: true, data: updated };
+  } catch (err: any) {
+    console.error("confirmAccountAction error:", err);
+    return { success: false, error: err.message || "Failed to confirm account" };
+  }
+}
+
+/**
+ * Remove an Instagram account. Restricted to owner or admin.
+ */
+export async function removeAccountAction(id: string): Promise<ActionResponse<any>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const account = await db.query("SELECT * FROM accounts WHERE id = $1", [id]);
+    if (account.rows.length === 0) {
+      return { success: false, error: "Account not found" };
+    }
+
+    if (session.role !== "admin" && account.rows[0].owner_id !== session.ownerId) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const removed = await db.removeAccount(id);
+    return { success: true, data: removed };
+  } catch (err: any) {
+    console.error("removeAccountAction error:", err);
+    return { success: false, error: err.message || "Failed to remove account" };
+  }
+}
+
+/**
+ * Fetch all media items. Return empty list if not logged in.
+ */
+export async function getMediaAction(): Promise<ActionResponse<any[]>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId) {
+      // Allow guest users to see empty list
+      return { success: true, data: [] };
+    }
+
+    const media = await db.getAllMedia(session.ownerId, session.role);
+    return { success: true, data: media };
+  } catch (err: any) {
+    console.error("getMediaAction error:", err);
+    return { success: false, error: err.message || "Failed to fetch media" };
+  }
+}
+
+/**
+ * Upload a media file. Restricted to logged-in users/admins.
+ */
+export async function uploadMediaAction(formData: FormData): Promise<ActionResponse<any>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId || !session.role) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const file = formData.get("file") as File;
+    if (!file) {
+      return { success: false, error: "No file provided" };
+    }
+
+    const id = Math.random().toString(36).slice(2, 9);
+    const fileExtension = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+    const storagePath = `uploads/${session.ownerId}/${id}.${fileExtension}`;
+
+    // Resolve correct MIME type — Windows often sends empty type for .mp4
+    const contentType = resolveContentType(file.type, file.name);
+    const mediaType = resolveMediaType(contentType);
+
+    console.log(`[upload] Starting: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB, ${contentType}) → ${storagePath}`);
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    
+    // Upload to Supabase Storage
+    const publicUrl = await uploadFile(buffer, storagePath, contentType);
+    console.log(`[upload] Storage OK: ${publicUrl}`);
+
+    // Register in DB
+    await db.addMedia({
+      id,
+      filename: file.name,
+      mediaType,
+      ownerId: session.ownerId,
+      ownerRole: session.role
+    });
+    console.log(`[upload] DB insert OK: id=${id}`);
+
+    // Update with the URL column
+    const updatedItem = await db.updateMedia(id, { cloudinaryUrl: publicUrl });
+    console.log(`[upload] DB update OK:`, updatedItem);
+    return { success: true, data: updatedItem };
+  } catch (err: any) {
+    console.error("uploadMediaAction error:", err);
+    return { success: false, error: err.message || "Failed to upload media" };
+  }
+}
+
+/**
+ * Remove a media item. Restricted to owner or admin.
+ */
+export async function removeMediaAction(id: string): Promise<ActionResponse<any>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const media = await db.getMediaById(id);
+    console.log(`[delete] id=${id} found:`, !!media, media ? `owner=${media.ownerId}` : '');
+    if (!media) {
+      return { success: false, error: "Media not found" };
+    }
+
+    if (session.role !== "admin" && media.ownerId !== session.ownerId) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    // Delete from Storage if it exists
+    if (media.cloudinaryUrl) {
+      try {
+        await deleteFile(media.cloudinaryUrl);
+      } catch (err) {
+        console.error(`Storage file deletion failed:`, err);
+      }
+    }
+
+    const removed = await db.removeMedia(id);
+    return { success: true, data: removed };
+  } catch (err: any) {
+    console.error("removeMediaAction error:", err);
+    return { success: false, error: err.message || "Failed to remove media" };
+  }
+}
+
+/**
+ * Update media details. Restricted to owner or admin.
+ */
+export async function updateMediaAction(id: string, updates: Record<string, any>): Promise<ActionResponse<any>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const media = await db.getMediaById(id);
+    if (!media) {
+      return { success: false, error: "Media not found" };
+    }
+
+    if (session.role !== "admin" && media.ownerId !== session.ownerId) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const updated = await db.updateMedia(id, updates);
+    return { success: true, data: updated };
+  } catch (err: any) {
+    console.error("updateMediaAction error:", err);
+    return { success: false, error: err.message || "Failed to update media" };
+  }
+}

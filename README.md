@@ -1,46 +1,36 @@
-# ReelBot Prototype — single clip, end to end
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-## Setup
+## Getting Started
 
-1. Install Node.js if you don't have it (v18+).
-2. In this folder, run:
-   ```
-   npm install
-   ```
-3. Copy `.env.example` to `.env` and fill in your real values:
-   ```
-   cp .env.example .env
-   ```
-   Then edit `.env` with:
-   - CLOUDINARY_CLOUD_NAME (you have: zdemoqzu)
-   - CLOUDINARY_API_KEY
-   - CLOUDINARY_API_SECRET (make sure this is the ROTATED one, not the one pasted earlier)
-   - IG_ACCESS_TOKEN
-   - IG_USER_ID
+First, run the development server:
 
-## Run it
-
-```
-node postReel.js "./clips/clip1.mp4" "Test caption #reels"
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-What happens:
-1. Uploads clip1.mp4 to your Cloudinary account (folder: reelbot/) and gets back a public URL.
-2. Sends that URL + caption to Instagram to create a Reels container.
-3. Polls Instagram every 5 seconds until it's done processing the video (can take anywhere from 10 seconds to a couple minutes depending on clip length).
-4. Publishes it — the reel goes live on your account.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You'll see progress logged at each step, and either a ✅ with the live media ID, or a ❌ with the specific error from Instagram's API (very useful for debugging token/permission issues).
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-## Common errors you might hit
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-- **"Invalid OAuth access token"** — token expired or wrong IG_USER_ID. Re-generate from the Meta dashboard.
-- **"Media type REELS is not supported"** or similar — check your account is still set to Creator/Business (Instagram Settings).
-- **Container stuck at status_code IN_PROGRESS past 2 minutes** — usually a very large file or slow-loading Cloudinary URL. Try a shorter clip first (under 30s) to confirm the pipeline works before testing longer ones.
+## Learn More
 
-## Next steps once this works
+To learn more about Next.js, take a look at the following resources:
 
-- Swap the hardcoded file path for a queue (folder of clips + a CSV of captions).
-- Add a Telegram bot layer so you can trigger `/post <n>` remotely.
-- Add pacing/delay between multiple posts instead of firing them back to back.
-- Add multi-account support (loop this per friend's token once they're onboarded as testers).
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
