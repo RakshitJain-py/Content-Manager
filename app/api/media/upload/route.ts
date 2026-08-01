@@ -6,7 +6,7 @@ import { uploadFile, resolveContentType, resolveMediaType } from "@/lib/storage"
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: "50mb",
+      sizeLimit: "40mb",
     },
   },
 };
