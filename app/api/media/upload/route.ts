@@ -3,6 +3,14 @@ import { db } from "@/lib/db";
 import { getCurrentSession } from "@/app/actions/auth";
 import { uploadFile, resolveContentType, resolveMediaType } from "@/lib/storage";
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "50mb",
+    },
+  },
+};
+
 export async function POST(request: Request) {
   try {
     const session = await getCurrentSession();
