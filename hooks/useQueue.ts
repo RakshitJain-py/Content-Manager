@@ -235,6 +235,12 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       return;
     }
 
+    const activeCount = media.filter((item) => item.status === "pending").length;
+    if (activeCount + files.length > 20) {
+      toast.error(`Workspace limit reached: You can keep up to 20 active media files in your queue. (Current active: ${activeCount})`);
+      return;
+    }
+
     const MAX_SIZE = 40 * 1024 * 1024; // 40MB
 
     for (let i = 0; i < files.length; i++) {

@@ -324,6 +324,15 @@ export async function getSignedUploadUrlAction(filename: string, mimeType: strin
       };
     }
 
+    // Verify 20 active files quota limit
+    const activeCount = await db.getActiveMediaCount(session.ownerId);
+    if (activeCount >= 20) {
+      return {
+        success: false,
+        error: "Workspace limit reached: You can keep up to 20 active media files in your queue. Please delete some existing files before uploading new ones."
+      };
+    }
+
     const storagePath = `uploads/${session.ownerId}/${id}.${fileExtension}`;
     const contentType = resolveContentType(mimeType, filename);
     const mediaType = resolveMediaType(contentType);

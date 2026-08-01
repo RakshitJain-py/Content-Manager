@@ -249,6 +249,22 @@ export const db = {
     return res.rows.map(m => this.mapMediaRow(m));
   },
 
+  async getPublishedCount24h(ownerId: string): Promise<number> {
+    const res = await this.query(
+      "SELECT COUNT(*)::int as count FROM media WHERE owner_id = $1 AND status = 'published' AND published_at >= NOW() - INTERVAL '24 hours'",
+      [ownerId]
+    );
+    return res.rows[0].count;
+  },
+
+  async getActiveMediaCount(ownerId: string): Promise<number> {
+    const res = await this.query(
+      "SELECT COUNT(*)::int as count FROM media WHERE owner_id = $1 AND status = 'pending'",
+      [ownerId]
+    );
+    return res.rows[0].count;
+  },
+
   async getMediaById(id: string) {
     const res = await this.query("SELECT * FROM media WHERE id = $1", [String(id)]);
     return res.rows.length > 0 ? this.mapMediaRow(res.rows[0]) : null;

@@ -49,6 +49,17 @@ export async function POST(request: Request) {
       })
     );
 
+    // Verify Daily Publish Quota (maximum 25 publications per day)
+    const dailyCount = await db.getPublishedCount24h(session.ownerId);
+    if (dailyCount >= 25) {
+      return NextResponse.json({
+        error: "Daily publish limit reached: Instagram restricts accounts to a maximum of 25 publications every 24 hours. Please wait until your daily quota resets."
+      }, { status: 400 });
+    }
+
+    // Helper to sleep between account publishing to prevent throttling
+    const sleepDelay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
     // ─── CAROUSEL MODE ──────────────────────────────────────────────────────
     // Bundle multiple selected items into a single Instagram carousel post.
     if (carouselMode && mediaIds.length > 1 && (contentType === "post" || contentType === "story")) {
@@ -65,8 +76,14 @@ export async function POST(request: Request) {
       const carouselResults: string[] = [];
       const carouselErrors: string[] = [];
 
-      for (const account of accounts) {
+      for (let aIndex = 0; aIndex < accounts.length; aIndex++) {
+        const account = accounts[aIndex];
         try {
+          if (aIndex > 0) {
+            console.log(`[Publish API] Sleeping 5s before carousel publishing to account ${account.name} to avoid rate limits...`);
+            await sleepDelay(5000);
+          }
+
           // 1. Create child containers in sequence order
           const childIds: string[] = [];
           for (const m of validItems) {
@@ -117,9 +134,6 @@ export async function POST(request: Request) {
               caption: options.caption || "",
               ...(i === 0 && permalink ? { permalink } : {}),
             });
-            if (m.cloudinaryUrl) {
-              try { await deleteFile(m.cloudinaryUrl); } catch (_) {}
-            }
           }
         } catch (accErr: any) {
           console.error(`[Publish API] Carousel failed for ${account.name}:`, accErr);
@@ -161,8 +175,14 @@ export async function POST(request: Request) {
         const publishResults: string[] = [];
         const publishErrors: string[] = [];
 
-        for (const account of accounts) {
+        for (let aIndex = 0; aIndex < accounts.length; aIndex++) {
+          const account = accounts[aIndex];
           try {
+            if (aIndex > 0) {
+              console.log(`[Publish API] Sleeping 5s before individual publishing to account ${account.name} to avoid rate limits...`);
+              await sleepDelay(5000);
+            }
+
             let containerId = "";
 
             if (contentType === "reel") {
@@ -240,10 +260,6 @@ export async function POST(request: Request) {
                 console.warn(`[Publish API] Permalink save failed (non-fatal):`, plErr.message);
               }
             }
-
-            await updateMediaSettings(publishedMediaId, account.accessToken, {
-              disableComments: options.disableComments,
-            });
           } catch (accErr: any) {
             console.error(`[Publish API] Failed posting to ${account.name}:`, accErr);
             publishErrors.push(`${account.name}: ${accErr.message || accErr}`);
@@ -264,14 +280,6 @@ export async function POST(request: Request) {
           error: finalError,
           caption: options.caption || "",
         });
-
-        if (finalStatus === "published") {
-          try {
-            await deleteFile(mediaUrl);
-          } catch (delErr: any) {
-            console.error(`[Publish API] Storage auto-delete failed: ${delErr.message}`);
-          }
-        }
 
         results.push({ id, success: finalStatus === "published" });
       } catch (itemErr: any) {
