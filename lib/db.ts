@@ -1,11 +1,22 @@
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 
-// Connection pool for PostgreSQL
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+let pool: Pool;
+
+if (process.env.NODE_ENV === "production") {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+} else {
+  if (!(global as any).pgPool) {
+    (global as any).pgPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
+  }
+  pool = (global as any).pgPool;
+}
 
 // Run database migrations on pool initialization
 pool.query(`
