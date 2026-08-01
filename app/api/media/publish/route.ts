@@ -105,7 +105,7 @@ export async function POST(request: Request) {
           await updateMediaSettings(publishedMediaId, account.accessToken, { 
             disableComments: options.disableComments, 
             hideLikes: options.hideLikes 
-          });
+          } as any);
 
           // 5. Mark all items as published; store permalink on the first item
           for (let i = 0; i < validItems.length; i++) {
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
             await updateMediaSettings(publishedMediaId, account.accessToken, { 
               disableComments: options.disableComments, 
               hideLikes: options.hideLikes 
-            });
+            } as any);
 
             const permalink = await getPermalink(publishedMediaId, account.accessToken);
             if (permalink) {
