@@ -1,8 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const clientId = process.env.INSTAGRAM_CLIENT_ID;
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  
+  // Dynamically resolve site URL from request headers
+  const host = request.headers.get("host") || "localhost:3000";
+  const proto = request.headers.get("x-forwarded-proto") || "http";
+  const siteUrl = `${proto}://${host}`;
   const redirectUri = `${siteUrl}/api/auth/instagram/callback`;
 
   if (!clientId) {
