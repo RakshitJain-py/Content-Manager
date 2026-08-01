@@ -86,10 +86,10 @@ export async function GET(request: NextRequest) {
     const username = meData.username || `ig_${instagramUserId}`;
 
     // 5. Store in database as a draft (isActive = false)
-    console.log(`[OAuth Callback] Storing draft account: @${username} (id=${instagramUserId})`);
+    console.log(`[OAuth Callback] Storing draft account: ${username} (id=${instagramUserId})`);
     await db.addAccount({
       id: String(instagramUserId),
-      name: `@${username}`,
+      name: username, // Removed leading @ prefix
       ownerId: session.ownerId,
       ownerRole: session.role,
       accessToken: longLivedToken,

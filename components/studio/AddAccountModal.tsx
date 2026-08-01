@@ -22,7 +22,8 @@ const EMPTY_DRAFT: AccountDraft = { name: "", igId: "", token: "" };
 export function AddAccountModal({ onClose, onSubmit, prefilledDraft, onConfirmDraft }: AddAccountModalProps) {
   const [draft, setDraft] = useState<AccountDraft>(() => {
     if (prefilledDraft) {
-      return { name: prefilledDraft.name, igId: prefilledDraft.id, token: "••••••••••••" };
+      const cleanName = prefilledDraft.name.startsWith("@") ? prefilledDraft.name.slice(1) : prefilledDraft.name;
+      return { name: cleanName, igId: prefilledDraft.id, token: "••••••••••••" };
     }
     return EMPTY_DRAFT;
   });
