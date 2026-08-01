@@ -137,9 +137,8 @@ export async function createReelContainer(
 
   if (opts.coverUrl) params.cover_url = opts.coverUrl;
   if (opts.shareToFeed !== undefined) params.share_to_feed = opts.shareToFeed ? "true" : "false";
-  // Meta Reels publishing parameters check:
-  // Note: comment/like options for reels can be applied post-publish or through container options
-  // if supported by the Graph version.
+  if (opts.hideLikes) params.hide_like_and_view_counts = "true";
+  if (opts.disableComments) params.comments_disabled = "true";
 
   const searchParams = new URLSearchParams(params);
   console.log(`[IG API] Creating Reel container on user ${userId}...`);

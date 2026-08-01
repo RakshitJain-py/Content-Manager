@@ -198,7 +198,12 @@ export async function POST(request: Request) {
                   options.caption || "",
                   account.id,
                   account.accessToken,
-                  { shareToFeed: true }
+                  {
+                    shareToFeed: options.shareToFeed,
+                    coverUrl: options.coverUrl,
+                    hideLikes: options.hideLikes,
+                    disableComments: options.disableComments,
+                  }
                 );
               } else {
                 containerId = await createImageContainer(
