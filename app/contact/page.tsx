@@ -11,6 +11,8 @@ export const metadata: Metadata = {
   },
 };
 
+export const dynamic = "force-dynamic";
+
 /** Contact page — app/contact/page.tsx */
 export default async function ContactPage() {
   const adminTelegram = (await db.getSystemSetting("admin_telegram_username")) || "@admin_placeholder";
