@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarClock, LogOut } from "lucide-react";
+import { LogOut, Bell } from "lucide-react";
 import { ROUTES } from "@/lib/routes";
 import { useSession } from "@/hooks/useSession";
 import { signOut } from "@/app/actions/auth";
+import { toast } from "sonner";
 
 export interface StudioHeaderProps {
   onOpenScheduler: () => void;
@@ -21,33 +22,47 @@ export function StudioHeader({ onOpenScheduler }: StudioHeaderProps) {
     router.refresh();
   };
 
+  const handleNotificationClick = () => {
+    toast.info("Notifications feature is coming soon!");
+  };
+
   return (
-    <header className="flex items-center justify-between border-b border-neutral-900 px-5 py-3">
-      <Link
-        href={ROUTES.home}
-        className="font-mono text-[11px] tracking-[0.3em] text-neutral-500 hover:text-neutral-300"
-      >
-        CONTENT MANAGER
-      </Link>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onOpenScheduler}
-          className="ig-gradient flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-[0.15em] shadow-[0_8px_30px_-10px_rgba(214,41,118,0.8)] transition-transform hover:scale-[1.03]"
+    <header className="grid grid-cols-3 items-center border-b border-neutral-900 px-5 py-3 bg-[#0a0a0a]">
+      {/* Left side: Home Link at 70% of 22px (~15.4px) */}
+      <div className="flex justify-start">
+        <Link
+          href={ROUTES.home}
+          className="font-mono text-[15.4px] font-bold tracking-[0.3em] text-neutral-500 hover:text-neutral-300 transition-colors"
         >
-          <CalendarClock className="h-4 w-4" /> Scheduler
+          CONTENT MANAGER
+        </Link>
+      </div>
+
+      {/* Center: Heading (bold monospace, shorter in height, gradient color) */}
+      <div className="flex justify-center">
+        <h1 className="font-mono text-xl font-extrabold tracking-wider bg-gradient-to-r from-[#4f5bd5] via-[#d62976] to-[#fa7e1e] bg-clip-text text-transparent transform scale-y-75 origin-center select-none">
+          STUDIO
+        </h1>
+      </div>
+
+      {/* Right side: Bell icon + Auth status */}
+      <div className="flex items-center justify-end gap-3">
+        <button
+          onClick={handleNotificationClick}
+          title="Notifications (Coming soon)"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-800 text-neutral-400 hover:text-white transition-colors"
+        >
+          <Bell className="h-4 w-4" />
         </button>
 
-        {/* Account area — changes based on session */}
         {!loading && session ? (
           <div className="flex items-center gap-2">
-            {/* User chip */}
             <div className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2">
               <div className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-pink-600 to-purple-600 text-[9px] font-bold text-white">
                 {session.displayName[0].toUpperCase()}
               </div>
               <span className="text-xs text-neutral-200">{session.displayName}</span>
             </div>
-            {/* Logout */}
             <button
               onClick={handleLogout}
               title="Sign out"

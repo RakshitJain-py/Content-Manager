@@ -33,7 +33,7 @@ export interface MediaItem {
 }
 
 /** The kind of Instagram content being composed. */
-export type ContentType = "post" | "reel" | "story";
+export type ContentType = "post" | "reel" | "story" | "history";
 
 /** Sign-in role chosen on /login. `null` means no role picked yet. */
 export type AuthRole = "user" | "admin" | null;

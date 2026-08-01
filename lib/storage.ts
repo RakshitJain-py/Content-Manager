@@ -88,3 +88,27 @@ export async function deleteFile(urlOrPath: string): Promise<void> {
     throw new Error(`Supabase Storage delete failed: ${error.message}`);
   }
 }
+
+/**
+ * Delete all files inside uploads/{role}/{ownerId}/thumbnail/ folder.
+ */
+export async function clearThumbnailFolder(role: string, ownerId: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  const folderPath = `uploads/${role}/${ownerId}/thumbnail`;
+
+  const { data, error } = await supabase.storage.from(BUCKET).list(folderPath);
+  if (error) {
+    console.warn(`[Storage] Failed to list thumbnail folder: ${error.message}`);
+    return;
+  }
+
+  if (data && data.length > 0) {
+    const paths = data.map((f) => `${folderPath}/${f.name}`);
+    const { error: removeError } = await supabase.storage.from(BUCKET).remove(paths);
+    if (removeError) {
+      console.warn(`[Storage] Failed to clear thumbnail folder: ${removeError.message}`);
+    } else {
+      console.log(`[Storage] Cleared thumbnail folder for ${ownerId}: deleted ${paths.length} file(s)`);
+    }
+  }
+}

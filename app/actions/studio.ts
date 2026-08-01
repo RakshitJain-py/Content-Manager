@@ -120,7 +120,8 @@ export async function getMediaAction(): Promise<ActionResponse<any[]>> {
     }
 
     const media = await db.getAllMedia(session.ownerId, session.role);
-    return { success: true, data: media };
+    const activeMedia = media.filter(m => m.status !== "published");
+    return { success: true, data: activeMedia };
   } catch (err: any) {
     console.error("getMediaAction error:", err);
     return { success: false, error: err.message || "Failed to fetch media" };
@@ -144,6 +145,14 @@ export async function uploadMediaAction(formData: FormData): Promise<ActionRespo
 
     const id = Math.random().toString(36).slice(2, 9);
     const fileExtension = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+    
+    if (fileExtension === "webp") {
+      return {
+        success: false,
+        error: "WebP images are not supported by the Instagram Graph API. Please upload JPG/PNG images or MP4/MOV videos instead."
+      };
+    }
+
     const storagePath = `uploads/${session.ownerId}/${id}.${fileExtension}`;
 
     // Resolve correct MIME type — Windows often sends empty type for .mp4
@@ -236,9 +245,32 @@ export async function updateMediaAction(id: string, updates: Record<string, any>
     }
 
     const updated = await db.updateMedia(id, updates);
-    return { success: true, data: updated };
+    return {
+      success: true,
+      data: updated
+    };
   } catch (err: any) {
     console.error("updateMediaAction error:", err);
     return { success: false, error: err.message || "Failed to update media" };
+  }
+}
+
+/**
+ * Fetch all publish history logs (all statuses: published, failed, uploading).
+ */
+export async function getPublishHistoryAction(): Promise<ActionResponse<any[]>> {
+  try {
+    const session = await getCurrentSession();
+    if (!session || !session.success || !session.ownerId) {
+      return { success: true, data: [] };
+    }
+
+    const allMedia = await db.getAllMedia(session.ownerId, session.role);
+    // Include all non-pending items as history logs
+    const logs = allMedia.filter((m) => m && m.status && m.status !== "pending" && m.status !== "approved");
+    return { success: true, data: logs };
+  } catch (err: any) {
+    console.error("getPublishHistoryAction error:", err);
+    return { success: false, error: err.message || "Failed to fetch publish history" };
   }
 }

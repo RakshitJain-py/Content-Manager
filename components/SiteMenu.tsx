@@ -78,7 +78,7 @@ export function SiteMenu({ delayed = false }: SiteMenuProps) {
       >
         <Link
           href={ROUTES.home}
-          className="font-mono text-[11px] tracking-[0.35em] text-neutral-500 transition-colors hover:text-neutral-300"
+          className="font-mono text-[15.4px] font-bold tracking-[0.35em] text-neutral-500 transition-colors hover:text-neutral-300"
         >
           CONTENT MANAGER
         </Link>

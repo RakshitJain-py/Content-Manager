@@ -79,10 +79,10 @@ export function MediaQueueItem({
         <Trash2 className="h-3.5 w-3.5" />
       </button>
 
-      {contentType !== "story" && (
+      {!ordered && (
         <button 
           onClick={handlePostClick}
-          className="ig-gradient rounded-lg px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em]"
+          className="ig-gradient rounded-lg px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] cursor-pointer"
         >
           Post
         </button>

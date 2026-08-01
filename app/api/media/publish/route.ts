@@ -6,8 +6,12 @@ import {
   createImageContainer,
   createReelContainer,
   createVideoStoryContainer,
+  createCarouselChildContainer,
+  createCarouselContainer,
   waitForContainerReady,
   publishContainer,
+  updateMediaSettings,
+  getPermalink,
   PublishOptions,
 } from "@/lib/instagram";
 
@@ -19,24 +23,24 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { mediaIds, accountIds, contentType, options = {} } = body as {
+    const { mediaIds, accountIds, contentType, carouselMode = false, options = {} } = body as {
       mediaIds: string[];
       accountIds: string[];
       contentType: "post" | "reel" | "story";
+      carouselMode: boolean;
       options: PublishOptions;
     };
 
     if (!mediaIds || mediaIds.length === 0) {
       return NextResponse.json({ error: "No media items selected" }, { status: 400 });
     }
-
     if (!accountIds || accountIds.length === 0) {
       return NextResponse.json({ error: "No Instagram accounts selected" }, { status: 400 });
     }
 
-    console.log(`[Publish API] Starting publish: type=${contentType}, items=${mediaIds.join(",")}, targets=${accountIds.join(",")}`);
+    console.log(`[Publish API] type=${contentType}, carousel=${carouselMode}, items=${mediaIds.join(",")}, targets=${accountIds.join(",")}`);
 
-    // Fetch account details (access tokens, names)
+    // Fetch account details
     const accounts = await Promise.all(
       accountIds.map(async (id) => {
         const acc = await db.getAccountById(id);
@@ -45,10 +49,97 @@ export async function POST(request: Request) {
       })
     );
 
-    // Process each media item sequentially in background/async so client is updated
-    // For safety, we will run the publishing loop and update DB statuses.
-    // To prevent API timeouts in serverless functions, we process items sequentially,
-    // and return the status of the operation.
+    // ─── CAROUSEL MODE ──────────────────────────────────────────────────────
+    // Bundle multiple selected items into a single Instagram carousel post.
+    if (carouselMode && mediaIds.length > 1 && (contentType === "post" || contentType === "story")) {
+      const mediaItems = await Promise.all(mediaIds.map((id) => db.getMediaById(id)));
+      const validItems = mediaItems.filter(Boolean) as NonNullable<typeof mediaItems[number]>[];
+
+      if (validItems.length === 0) {
+        return NextResponse.json({ error: "No valid media found for carousel" }, { status: 400 });
+      }
+
+      // Mark all items as uploading
+      await Promise.all(validItems.map((m) => db.updateMedia(m.id, { status: "uploading", error: null })));
+
+      const carouselResults: string[] = [];
+      const carouselErrors: string[] = [];
+
+      for (const account of accounts) {
+        try {
+          // 1. Create child containers in sequence order
+          const childIds: string[] = [];
+          for (const m of validItems) {
+            const childId = await createCarouselChildContainer(
+              m.cloudinaryUrl!,
+              account.id,
+              account.accessToken,
+              m.mediaType === "video" ? "video" : "image"
+            );
+            // Wait for each video child to finish processing
+            if (m.mediaType === "video") {
+              await waitForContainerReady(childId, account.accessToken);
+            }
+            childIds.push(childId);
+          }
+
+          // 2. Create carousel container
+          const carouselContainerId = await createCarouselContainer(
+            childIds,
+            options.caption || "",
+            account.id,
+            account.accessToken,
+            { hideLikes: options.hideLikes, disableComments: options.disableComments }
+          );
+
+          // 3. Wait and publish
+          await waitForContainerReady(carouselContainerId, account.accessToken);
+          const publishedMediaId = await publishContainer(carouselContainerId, account.id, account.accessToken);
+          carouselResults.push(`${account.name}: ${publishedMediaId}`);
+
+          // 4. Get permalink (non-fatal) and apply settings
+          let permalink: string | null = null;
+          try {
+            permalink = await getPermalink(publishedMediaId, account.accessToken);
+          } catch (_) {}
+          await updateMediaSettings(publishedMediaId, account.accessToken, { disableComments: options.disableComments });
+
+          // 5. Mark all items as published; store permalink on the first item
+          for (let i = 0; i < validItems.length; i++) {
+            const m = validItems[i];
+            await db.updateMedia(m.id, {
+              status: "published",
+              instagramMediaId: publishedMediaId,
+              publishedAt: new Date().toISOString(),
+              caption: options.caption || "",
+              ...(i === 0 && permalink ? { permalink } : {}),
+            });
+            if (m.cloudinaryUrl) {
+              try { await deleteFile(m.cloudinaryUrl); } catch (_) {}
+            }
+          }
+        } catch (accErr: any) {
+          console.error(`[Publish API] Carousel failed for ${account.name}:`, accErr);
+          carouselErrors.push(`${account.name}: ${accErr.message || accErr}`);
+        }
+      }
+
+      if (carouselErrors.length === accounts.length) {
+        const firstError = carouselErrors[0] || "Carousel publish failed";
+        await Promise.all(validItems.map((m) => db.updateMedia(m.id, { status: "failed", error: firstError })));
+        return NextResponse.json({
+          success: true,
+          results: mediaIds.map((id) => ({ id, success: false, error: firstError })),
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        results: mediaIds.map((id) => ({ id, success: true })),
+      });
+    }
+
+    // ─── INDIVIDUAL MODE ─────────────────────────────────────────────────────
     const results: Array<{ id: string; success: boolean; error?: string }> = [];
 
     for (const id of mediaIds) {
@@ -61,10 +152,8 @@ export async function POST(request: Request) {
       await db.updateMedia(id, { status: "uploading", error: null });
 
       try {
-        const mediaUrl = media.cloudinaryUrl; // Store Supabase Storage URL
-        if (!mediaUrl) {
-          throw new Error("No media URL found for this item.");
-        }
+        const mediaUrl = media.cloudinaryUrl;
+        if (!mediaUrl) throw new Error("No media URL found for this item.");
 
         const publishResults: string[] = [];
         const publishErrors: string[] = [];
@@ -77,20 +166,13 @@ export async function POST(request: Request) {
               if (media.mediaType !== "video") {
                 throw new Error("Only videos can be published as Reels.");
               }
-              // Create Reel Container
               containerId = await createReelContainer(
                 mediaUrl,
                 options.caption || "",
                 account.id,
                 account.accessToken,
-                {
-                  coverUrl: options.coverUrl,
-                  shareToFeed: options.shareToFeed !== false,
-                }
+                { coverUrl: options.coverUrl, shareToFeed: options.shareToFeed !== false }
               );
-              // Wait for container to process
-              await waitForContainerReady(containerId, account.accessToken);
-
             } else if (contentType === "story") {
               if (media.mediaType === "video") {
                 containerId = await createVideoStoryContainer(
@@ -99,7 +181,6 @@ export async function POST(request: Request) {
                   account.accessToken,
                   { storyLink: options.storyLink }
                 );
-                await waitForContainerReady(containerId, account.accessToken);
               } else {
                 containerId = await createImageContainer(
                   mediaUrl,
@@ -109,11 +190,9 @@ export async function POST(request: Request) {
                   { storyLink: options.storyLink }
                 );
               }
-
             } else {
               // Standard Post
               if (media.mediaType === "video") {
-                // Video posts are published as Reels in current Meta Graph API
                 containerId = await createReelContainer(
                   mediaUrl,
                   options.caption || "",
@@ -121,7 +200,6 @@ export async function POST(request: Request) {
                   account.accessToken,
                   { shareToFeed: true }
                 );
-                await waitForContainerReady(containerId, account.accessToken);
               } else {
                 containerId = await createImageContainer(
                   mediaUrl,
@@ -137,10 +215,22 @@ export async function POST(request: Request) {
               }
             }
 
-            // Publish the container
+            await waitForContainerReady(containerId, account.accessToken);
             const publishedMediaId = await publishContainer(containerId, account.id, account.accessToken);
             publishResults.push(`${account.name}: ${publishedMediaId}`);
 
+            const permalink = await getPermalink(publishedMediaId, account.accessToken);
+            if (permalink) {
+              try {
+                await db.updateMedia(id, { permalink });
+              } catch (plErr: any) {
+                console.warn(`[Publish API] Permalink save failed (non-fatal):`, plErr.message);
+              }
+            }
+
+            await updateMediaSettings(publishedMediaId, account.accessToken, {
+              disableComments: options.disableComments,
+            });
           } catch (accErr: any) {
             console.error(`[Publish API] Failed posting to ${account.name}:`, accErr);
             publishErrors.push(`${account.name}: ${accErr.message || accErr}`);
@@ -159,20 +249,18 @@ export async function POST(request: Request) {
           instagramMediaId: publishResults.join(", "),
           publishedAt: new Date().toISOString(),
           error: finalError,
+          caption: options.caption || "",
         });
 
-        // Auto-delete from Supabase Storage bucket after successful publish to save space
         if (finalStatus === "published") {
           try {
             await deleteFile(mediaUrl);
-            console.log(`[Publish API] Auto-deleted file from Supabase storage: ${mediaUrl}`);
           } catch (delErr: any) {
             console.error(`[Publish API] Storage auto-delete failed: ${delErr.message}`);
           }
         }
 
         results.push({ id, success: finalStatus === "published" });
-
       } catch (itemErr: any) {
         console.error(`[Publish API] Failed item ${id}:`, itemErr);
         await db.updateMedia(id, {

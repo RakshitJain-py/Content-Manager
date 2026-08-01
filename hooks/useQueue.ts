@@ -44,6 +44,14 @@ export interface UseQueueResult {
   loading: boolean;
   /** Fired when an unauthenticated user tries to do a restricted action — show login gate */
   onLoginRequired: () => void;
+  lastSavedCaption: string;
+  coverUrl: string;
+  setCoverUrl: (url: string) => void;
+  uploadCover: (file: File) => Promise<void>;
+  saveSettings: () => Promise<void>;
+  applyMediaAsCover: (mediaId: string) => Promise<void>;
+  lastSavedCoverUrl: string;
+  isSettingsDirty: boolean;
 }
 
 export function useQueue(onLoginRequired: () => void): UseQueueResult {
@@ -61,24 +69,34 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [storyBuilding, setStoryBuilding] = useState(false);
   const [caption, setCaption] = useState("");
+  const [lastSavedCaption, setLastSavedCaption] = useState("");
   const [storyLink, setStoryLink] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
+  const [lastSavedCoverUrl, setLastSavedCoverUrl] = useState("");
   const [options, setOptions] = useState<PublishSettings>({
     hideLikes: false,
     disableComments: false,
     shareToFeed: true,
     allowRemixing: false,
   });
+  const [lastSavedOptions, setLastSavedOptions] = useState<PublishSettings>({
+    hideLikes: false,
+    disableComments: false,
+    shareToFeed: true,
+    allowRemixing: false,
+  });
+  const [lastSavedStoryLink, setLastSavedStoryLink] = useState("");
   const [loading, setLoading] = useState(true);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const setOption = useCallback((key: keyof PublishSettings, value: boolean) => {
     setOptions((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  // Fetch media & caption on mount
+  // Fetch media queue on mount
   useEffect(() => {
     let active = true;
 
-    // Load media
     getMediaAction()
       .then((res) => {
         if (!active) return;
@@ -98,23 +116,107 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
         console.error("Error loading media queue:", err);
       });
 
-    // Load caption
-    fetch("/api/caption")
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Fetch configurations whenever the active content type tab changes
+  useEffect(() => {
+    if (!contentType || contentType === "history") return;
+
+    setLoading(true);
+    setSettingsLoaded(false);
+
+    let active = true;
+    fetch(`/api/settings?contentType=${contentType}`)
       .then((res) => res.json())
       .then((data) => {
-        if (active && data.success) {
-          setCaption(data.caption || "");
+        if (active && data.success && data.settings) {
+          const s = data.settings;
+          setCaption(s.caption || "");
+          setLastSavedCaption(s.caption || "");
+          setStoryLink(s.storyLink || "");
+          setLastSavedStoryLink(s.storyLink || "");
+          setCoverUrl(s.coverUrl || "");
+          setLastSavedCoverUrl(s.coverUrl || "");
+          if (s.options) {
+            setOptions((prev) => ({ ...prev, ...s.options }));
+            setLastSavedOptions((prev) => ({ ...prev, ...s.options }));
+          }
+        } else {
+          // Reset fields to defaults if no custom settings exist for this contentType
+          setCaption("");
+          setLastSavedCaption("");
+          setStoryLink("");
+          setLastSavedStoryLink("");
+          setCoverUrl("");
+          setLastSavedCoverUrl("");
+          const defaults = {
+            hideLikes: false,
+            disableComments: false,
+            shareToFeed: true,
+            allowRemixing: false,
+          };
+          setOptions(defaults);
+          setLastSavedOptions(defaults);
         }
       })
-      .catch((err) => console.error("Error loading caption:", err))
+      .catch((err) => console.error("Error loading settings:", err))
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) {
+          setTimeout(() => {
+            if (active) setSettingsLoaded(true);
+          }, 100);
+          setLoading(false);
+        }
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [contentType]);
+
+  // Sync content type tab choice to localStorage
+  useEffect(() => {
+    if (contentType && contentType !== "history") {
+      localStorage.setItem("cm_contentType", contentType);
+    }
+  }, [contentType]);
+
+  const saveSettings = useCallback(async () => {
+    if (!contentType || contentType === "history") return;
+
+    const promise = fetch("/api/settings", {
+      method: "POST",
+      body: JSON.stringify({
+        contentType,
+        settings: {
+          caption,
+          storyLink,
+          coverUrl,
+          options,
+        },
+      }),
+      headers: { "Content-Type": "application/json" },
+    }).then(async (res) => {
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to save configurations");
+      }
+      setLastSavedCaption(caption);
+      setLastSavedCoverUrl(coverUrl);
+      setLastSavedStoryLink(storyLink);
+      setLastSavedOptions(options);
+      return res.json();
+    });
+
+    toast.promise(promise, {
+      loading: "Saving settings...",
+      success: "Settings saved successfully!",
+      error: (err) => `Failed to save settings: ${err.message || err}`,
+    });
+  }, [contentType, caption, storyLink, coverUrl, options]);
 
   const setContentType = useCallback((type: ContentType) => {
     setContentTypeState(type);
@@ -212,18 +314,92 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
     try {
       const response = await fetch("/api/caption", {
         method: "POST",
-        body: JSON.stringify({ caption }),
+        body: JSON.stringify({ caption, contentType }),
         headers: { "Content-Type": "application/json" },
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.error || "Failed to save caption");
       }
+      setLastSavedCaption(caption);
       toast.success("Caption saved successfully!");
     } catch (err: any) {
       toast.error(err.message || "Failed to save caption");
     }
-  }, [caption]);
+  }, [caption, contentType]);
+
+  const uploadCover = useCallback(async (file: File) => {
+    // Check session client-side first
+    const session = await getCurrentSession();
+    if (!session || !session.success) {
+      onLoginRequired();
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const promise = fetch(`/api/media/upload?type=cover&contentType=${contentType}`, {
+      method: "POST",
+      body: formData,
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Upload failed with status ${res.status}`);
+        }
+        const data = await res.json();
+        if (data.success && data.data?.cloudinaryUrl) {
+          setCoverUrl(data.data.cloudinaryUrl);
+          return data.data.cloudinaryUrl;
+        } else {
+          throw new Error(data.error || "Failed to upload cover thumbnail");
+        }
+      });
+
+    toast.promise(promise, {
+      loading: "Uploading cover thumbnail...",
+      success: "Cover thumbnail uploaded successfully!",
+      error: (err) => `Thumbnail upload failed: ${err.message || err}`,
+    });
+  }, [contentType, onLoginRequired]);
+
+  const applyMediaAsCover = useCallback(async (mediaId: string) => {
+    // Check session client-side first
+    const session = await getCurrentSession();
+    if (!session || !session.success) {
+      onLoginRequired();
+      return;
+    }
+
+    const promise = fetch("/api/media/apply-cover", {
+      method: "POST",
+      body: JSON.stringify({
+        mediaId,
+        currentCoverUrl: coverUrl,
+      }),
+      headers: { "Content-Type": "application/json" },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Apply cover failed with status ${res.status}`);
+        }
+        const data = await res.json();
+        if (data.success && data.coverUrl) {
+          setCoverUrl(data.coverUrl);
+          return data.coverUrl;
+        } else {
+          throw new Error(data.error || "Failed to apply cover");
+        }
+      });
+
+    toast.promise(promise, {
+      loading: "Applying media as cover...",
+      success: "Media applied as cover successfully!",
+      error: (err) => `Failed to apply cover: ${err.message || err}`,
+    });
+  }, [coverUrl, onLoginRequired]);
 
   const postMedia = useCallback(async (id: string, targetAccountIds: string[]) => {
     if (targetAccountIds.length === 0) {
@@ -232,6 +408,12 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
     }
     const item = media.find((m) => m.id === id);
     if (!item) return;
+
+    // Pre-validate: Reels only support videos
+    if (contentType === "reel" && item.kind === "image") {
+      toast.error(`"${item.name}" is an image — only videos can be published as Reels.`);
+      return;
+    }
 
     const promise = fetch("/api/media/publish", {
       method: "POST",
@@ -242,6 +424,7 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
         options: {
           caption,
           storyLink,
+          coverUrl, // Pass custom cover/thumbnail
           hideLikes: options.hideLikes,
           disableComments: options.disableComments,
           shareToFeed: options.shareToFeed,
@@ -274,7 +457,7 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       success: `Successfully published "${item.name}"!`,
       error: (err) => `Failed to publish: ${err.message || err}`,
     });
-  }, [media, contentType, caption, storyLink, options]);
+  }, [media, contentType, caption, storyLink, coverUrl, options]);
 
   const postSelected = useCallback(async (targetAccountIds: string[]) => {
     if (selectedIds.length === 0) {
@@ -286,15 +469,34 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       return;
     }
 
+    // Pre-validate: Reels only support videos
+    if (contentType === "reel") {
+      const selectedItems = media.filter((m) => selectedIds.includes(m.id));
+      const imageItems = selectedItems.filter((m) => m.kind === "image");
+      if (imageItems.length > 0) {
+        toast.error(
+          imageItems.length === 1
+            ? `"${imageItems[0].name}" is an image — only videos can be published as Reels.`
+            : `${imageItems.length} selected item(s) are images — only videos can be published as Reels.`
+        );
+        return;
+      }
+    }
+
+    // Carousel mode: multiple slides into one post
+    const carouselMode = storyBuilding && selectedIds.length > 1 && (contentType === "post" || contentType === "story");
+
     const promise = fetch("/api/media/publish", {
       method: "POST",
       body: JSON.stringify({
         mediaIds: selectedIds,
         accountIds: targetAccountIds,
         contentType,
+        carouselMode,
         options: {
           caption,
           storyLink,
+          coverUrl,
           hideLikes: options.hideLikes,
           disableComments: options.disableComments,
           shareToFeed: options.shareToFeed,
@@ -320,7 +522,9 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
         setMedia((list) => list.filter((m) => !succeededIds.includes(m.id)));
         setSelectedIds(failedIds); // Keep only failed items selected
 
-        throw new Error(`${failed.length} item(s) failed to publish. Check errors in details.`);
+        // Surface specific error messages from failed items
+        const firstError = failed[0]?.error;
+        throw new Error(firstError || `${failed.length} item(s) failed to publish.`);
       }
 
       setMedia((list) => list.filter((m) => !selectedIds.includes(m.id)));
@@ -329,11 +533,15 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
     });
 
     toast.promise(promise, {
-      loading: `Publishing ${selectedIds.length} item(s) to Instagram...`,
-      success: `Successfully published ${selectedIds.length} item(s)!`,
-      error: (err) => `Failed to publish batch: ${err.message || err}`,
+      loading: carouselMode
+        ? `Publishing ${selectedIds.length} slides as one post...`
+        : `Publishing ${selectedIds.length} item(s) to Instagram...`,
+      success: carouselMode
+        ? `Carousel post published successfully!`
+        : `Successfully published ${selectedIds.length} item(s)!`,
+      error: (err) => `Failed to publish: ${err.message || err}`,
     });
-  }, [selectedIds, contentType, caption, storyLink, options]);
+  }, [selectedIds, media, contentType, storyBuilding, caption, storyLink, coverUrl, options]);
 
   const allSelected = media.length > 0 && selectedIds.length === media.length;
 
@@ -347,6 +555,30 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
     const id = selectedIds[0] ?? media[0]?.id;
     return media.find((m) => m.id === id);
   }, [media, selectedIds]);
+
+  const isSettingsDirty = useMemo(() => {
+    return (
+      coverUrl !== lastSavedCoverUrl ||
+      storyLink !== lastSavedStoryLink ||
+      options.hideLikes !== lastSavedOptions.hideLikes ||
+      options.disableComments !== lastSavedOptions.disableComments ||
+      options.shareToFeed !== lastSavedOptions.shareToFeed ||
+      options.allowRemixing !== lastSavedOptions.allowRemixing
+    );
+  }, [
+    coverUrl,
+    lastSavedCoverUrl,
+    storyLink,
+    lastSavedStoryLink,
+    options.hideLikes,
+    lastSavedOptions.hideLikes,
+    options.disableComments,
+    lastSavedOptions.disableComments,
+    options.shareToFeed,
+    lastSavedOptions.shareToFeed,
+    options.allowRemixing,
+    lastSavedOptions.allowRemixing,
+  ]);
 
   return {
     contentType,
@@ -373,5 +605,13 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
     postSelected,
     loading,
     onLoginRequired,
+    lastSavedCaption,
+    coverUrl,
+    setCoverUrl,
+    uploadCover,
+    saveSettings,
+    applyMediaAsCover,
+    lastSavedCoverUrl,
+    isSettingsDirty,
   };
 }

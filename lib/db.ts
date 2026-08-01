@@ -7,6 +7,39 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// Run database migrations on pool initialization
+pool.query(`
+  CREATE TABLE IF NOT EXISTS configurations (
+    id SERIAL PRIMARY KEY,
+    owner_id VARCHAR(255) NOT NULL,
+    owner_role VARCHAR(50) NOT NULL,
+    content_type VARCHAR(50) DEFAULT 'post',
+    caption TEXT DEFAULT '',
+    cover_url TEXT DEFAULT '',
+    story_link TEXT DEFAULT '',
+    options JSONB DEFAULT '{}'::jsonb
+  );
+  
+  -- Drop legacy constraints and create unified one
+  ALTER TABLE configurations DROP CONSTRAINT IF EXISTS unique_owner;
+  ALTER TABLE configurations DROP CONSTRAINT IF EXISTS unique_owner_content_type;
+  ALTER TABLE configurations ADD CONSTRAINT unique_owner_content_type UNIQUE (owner_id, owner_role, content_type);
+`).then(() => {
+  console.log("[DB] Configurations table schema and unique constraint updated.");
+}).catch((err) => {
+  console.error("[DB] Migration error during startup:", err.message);
+});
+
+// Media table column migrations — run on every module load so new columns are always present
+pool.query(`
+  ALTER TABLE media ADD COLUMN IF NOT EXISTS caption TEXT DEFAULT '';
+  ALTER TABLE media ADD COLUMN IF NOT EXISTS permalink TEXT DEFAULT '';
+`).then(() => {
+  console.log("[DB] Media table columns ensured.");
+}).catch((err) => {
+  console.error("[DB] Media migration error:", err.message);
+});
+
 export const db = {
   async query(text: string, params?: any[]) {
     try {
@@ -104,10 +137,29 @@ export const db = {
 
   // Seed default admin and run schema upgrades from environment variables if not present
   async seedAdminIfNeeded() {
-    // Schema upgrade migrations (safe ALTER TABLE)
+    // Schema upgrade migrations (safe ALTER TABLE & CREATE TABLE)
     try {
       await this.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS caption TEXT DEFAULT ''");
       await this.query("ALTER TABLE admins ADD COLUMN IF NOT EXISTS caption TEXT DEFAULT ''");
+      await this.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb");
+      await this.query("ALTER TABLE admins ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb");
+      await this.query("ALTER TABLE media ADD COLUMN IF NOT EXISTS caption TEXT DEFAULT ''");
+      await this.query("ALTER TABLE media ADD COLUMN IF NOT EXISTS permalink TEXT DEFAULT ''");
+      
+      // Create dedicated configurations table
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS configurations (
+          id SERIAL PRIMARY KEY,
+          owner_id VARCHAR(255) NOT NULL,
+          owner_role VARCHAR(50) NOT NULL,
+          content_type VARCHAR(50) DEFAULT 'post',
+          caption TEXT DEFAULT '',
+          cover_url TEXT DEFAULT '',
+          story_link TEXT DEFAULT '',
+          options JSONB DEFAULT '{}'::jsonb,
+          CONSTRAINT unique_owner UNIQUE (owner_id, owner_role)
+        );
+      `);
     } catch (e: any) {
       console.warn("Schema upgrade warning (non-fatal):", e.message);
     }
@@ -247,7 +299,9 @@ export const db = {
       error: "error",
       hideLikes: "hide_likes",
       disableComments: "disable_comments",
-      shareToFeed: "share_to_feed"
+      shareToFeed: "share_to_feed",
+      caption: "caption",
+      permalink: "permalink"
     };
 
     for (const [key, val] of Object.entries(updates)) {
@@ -395,19 +449,61 @@ export const db = {
     };
   },
 
-  async getCaption(ownerId: string, role: "user" | "admin") {
-    const table = role === "admin" ? "admins" : "users";
-    const keyColumn = role === "admin" ? "telegram_id" : "email";
-    
-    const res = await this.query(`SELECT caption FROM ${table} WHERE ${keyColumn} = $1`, [ownerId]);
+  async getCaption(ownerId: string, role: "user" | "admin", contentType: string) {
+    const res = await this.query(
+      `SELECT caption FROM configurations WHERE owner_id = $1 AND owner_role = $2 AND content_type = $3`,
+      [ownerId, role, contentType]
+    );
     return res.rows.length > 0 ? res.rows[0].caption || "" : "";
   },
 
-  async setCaption(ownerId: string, role: "user" | "admin", caption: string) {
-    const table = role === "admin" ? "admins" : "users";
-    const keyColumn = role === "admin" ? "telegram_id" : "email";
+  async setCaption(ownerId: string, role: "user" | "admin", contentType: string, caption: string) {
+    await this.query(
+      `INSERT INTO configurations (owner_id, owner_role, content_type, caption)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (owner_id, owner_role, content_type)
+       DO UPDATE SET caption = EXCLUDED.caption`,
+      [ownerId, role, contentType, caption]
+    );
+  },
 
-    await this.query(`UPDATE ${table} SET caption = $1 WHERE ${keyColumn} = $2`, [caption, ownerId]);
+  async getSettings(ownerId: string, role: "user" | "admin", contentType: string) {
+    const res = await this.query(
+      `SELECT caption, cover_url, story_link, options FROM configurations WHERE owner_id = $1 AND owner_role = $2 AND content_type = $3`,
+      [ownerId, role, contentType]
+    );
+    if (res.rows.length === 0) return {};
+    const row = res.rows[0];
+    return {
+      contentType,
+      caption: row.caption,
+      coverUrl: row.cover_url,
+      storyLink: row.story_link,
+      options: row.options || {},
+    };
+  },
+
+  async setSettings(ownerId: string, role: "user" | "admin", contentType: string, settings: any) {
+    const optionsJson = typeof settings.options === "string" ? settings.options : JSON.stringify(settings.options || {});
+    await this.query(
+      `INSERT INTO configurations (owner_id, owner_role, content_type, caption, cover_url, story_link, options)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (owner_id, owner_role, content_type)
+       DO UPDATE SET
+         caption = EXCLUDED.caption,
+         cover_url = EXCLUDED.cover_url,
+         story_link = EXCLUDED.story_link,
+         options = EXCLUDED.options`,
+      [
+        ownerId,
+        role,
+        contentType,
+        settings.caption || "",
+        settings.coverUrl || "",
+        settings.storyLink || "",
+        optionsJson
+      ]
+    );
   },
 
   // Helper mapping database rows to camelCase schema
@@ -429,7 +525,9 @@ export const db = {
       error: row.error,
       hideLikes: row.hide_likes,
       disableComments: row.disable_comments,
-      shareToFeed: row.share_to_feed
+      shareToFeed: row.share_to_feed,
+      caption: row.caption || "",
+      permalink: row.permalink || ""
     };
   }
 };

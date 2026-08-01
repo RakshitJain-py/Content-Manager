@@ -47,4 +47,5 @@ debug-db.js
 check-media.js
 test-login-logs.js
 test-storage.js
+scratch/
 
