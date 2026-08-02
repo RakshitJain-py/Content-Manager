@@ -139,6 +139,8 @@ export default function StudioPage() {
               }
             );
           }}
+          rateLimitWindow={queue.rateLimitWindow}
+          onRefreshRateLimit={queue.refreshRateLimit}
         />
 
         <main className="min-w-0 flex-1">
@@ -158,6 +160,7 @@ export default function StudioPage() {
               }
             }}
             onOpenReadme={() => setReadmeOpen(true)}
+            isPublishing={queue.isPublishing}
           />
 
           <div className="p-4">
@@ -388,6 +391,7 @@ export default function StudioPage() {
                             queue.postMedia(item.id, accountsState.selectedIds);
                           }
                         }}
+                        isPublishing={queue.isPublishing}
                       />
                     ))}
                   </div>

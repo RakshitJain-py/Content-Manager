@@ -16,10 +16,18 @@ export interface Account {
   igId: string;
   /** Long-lived access token. Never rendered in plain text in the UI. */
   token: string;
+  /** How many more posts can be published to this account today (max 20). */
+  postsRemaining: number;
+  /** ISO timestamp when the daily quota resets; null if never published. */
+  quotaResetAt: string | null;
 }
 
-/** Payload used when creating a new account (no id yet). */
-export type AccountDraft = Omit<Account, "id">;
+/** Payload used when creating a new account (no id yet, no server-side quota fields). */
+export interface AccountDraft {
+  name: string;
+  igId: string;
+  token: string;
+}
 
 /** A single uploaded media file waiting in the publish queue. */
 export interface MediaItem {

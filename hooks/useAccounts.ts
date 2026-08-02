@@ -36,6 +36,8 @@ export function useAccounts(): UseAccountsResult {
             name: a.name || `@account_${a.id}`,
             igId: a.id,
             token: a.accessToken,
+            postsRemaining: a.postsRemaining ?? 20,
+            quotaResetAt: a.quotaResetAt ?? null,
           }));
           setAccounts(mapped);
         }
@@ -64,6 +66,11 @@ export function useAccounts(): UseAccountsResult {
       throw new Error("You must be logged in to add an account.");
     }
 
+    // Enforce 10-account limit
+    if (accounts.length >= 10) {
+      throw new Error("Account limit reached. You can connect up to 10 Instagram accounts.");
+    }
+
     const res = await addAccountAction({
       id: draft.igId,
       name: draft.name,
@@ -79,11 +86,13 @@ export function useAccounts(): UseAccountsResult {
       name: res.data.name || `@account_${res.data.id}`,
       igId: res.data.id,
       token: res.data.accessToken,
+      postsRemaining: res.data.postsRemaining ?? 20,
+      quotaResetAt: res.data.quotaResetAt ?? null,
     };
 
     setAccounts((list) => [...list, newAccount]);
     return newAccount;
-  }, [router]);
+  }, [router, accounts.length]);
 
   const confirmAccount = useCallback(async (id: string, name: string): Promise<Account> => {
     const session = await getCurrentSession();
@@ -102,6 +111,8 @@ export function useAccounts(): UseAccountsResult {
       name: res.data.name || `@account_${res.data.id}`,
       igId: res.data.id,
       token: res.data.accessToken,
+      postsRemaining: res.data.postsRemaining ?? 20,
+      quotaResetAt: res.data.quotaResetAt ?? null,
     };
 
     setAccounts((list) => {

@@ -49,13 +49,45 @@ export async function POST(request: Request) {
       })
     );
 
-    // Verify Daily Publish Quota (maximum 25 publications per day)
-    const dailyCount = await db.getPublishedCount24h(session.ownerId);
-    if (dailyCount >= 25) {
+    // ─── PRE-FLIGHT CHECK 1: Per-account daily quota ─────────────────────────
+    // Strict: if ANY account is exhausted, block the entire operation.
+    const exhaustedAccounts = accounts.filter((a) => (a.postsRemaining ?? 20) <= 0);
+    if (exhaustedAccounts.length > 0) {
+      const names = exhaustedAccounts.map((a) => a.name).join(", ");
       return NextResponse.json({
-        error: "Daily publish limit reached: Instagram restricts accounts to a maximum of 25 publications every 24 hours. Please wait until your daily quota resets."
-      }, { status: 400 });
+        error: `Daily quota exhausted for: ${names}. Each account allows 20 posts per 24 hours. Please deselect exhausted accounts or wait for the quota to reset.`,
+      }, { status: 429 });
     }
+
+    // ─── PRE-FLIGHT CHECK 2: 5 ops per 3-minute rolling window ──────────────
+    const MAX_OPS_PER_WINDOW = 5;
+    const WINDOW_SECONDS = 180;
+
+    // Number of ops this publish will consume: each media × each account = 1 op
+    const newOps = carouselMode ? accountIds.length : mediaIds.length * accountIds.length;
+
+    let currentWindow = await db.getRateLimitWindow(session.ownerId);
+    let opsUsed = 0;
+    let windowStartedAt = new Date();
+
+    if (currentWindow) {
+      const elapsed = (Date.now() - currentWindow.windowStartedAt.getTime()) / 1000;
+      if (elapsed < WINDOW_SECONDS) {
+        opsUsed = currentWindow.opsUsed;
+        windowStartedAt = currentWindow.windowStartedAt;
+      }
+      // else: window expired, starts fresh
+    }
+
+    if (opsUsed + newOps > MAX_OPS_PER_WINDOW) {
+      const remaining = MAX_OPS_PER_WINDOW - opsUsed;
+      const secondsLeft = Math.ceil(WINDOW_SECONDS - (Date.now() - windowStartedAt.getTime()) / 1000);
+      return NextResponse.json({
+        error: `Rate limit: Only ${remaining} operation${remaining !== 1 ? "s" : ""} left in this window. You requested ${newOps}. Wait ${secondsLeft}s or reduce your selection.`,
+        rateLimitSecondsLeft: secondsLeft,
+      }, { status: 429 });
+    }
+
 
     // Helper to sleep between account publishing to prevent throttling
     const sleepDelay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -135,10 +167,20 @@ export async function POST(request: Request) {
               ...(i === 0 && permalink ? { permalink } : {}),
             });
           }
+
+          // 6. Decrement per-account daily quota (only on success)
+          await db.decrementAccountQuota(account.id);
         } catch (accErr: any) {
           console.error(`[Publish API] Carousel failed for ${account.name}:`, accErr);
           carouselErrors.push(`${account.name}: ${accErr.message || accErr}`);
         }
+      }
+
+      // Update rate limit window with ops consumed by successful publishes
+      const successfulOps = carouselResults.length; // 1 op per successful account
+      if (successfulOps > 0) {
+        const newOpsUsed = opsUsed + successfulOps;
+        await db.upsertRateLimitWindow(session.ownerId, newOpsUsed, new Date());
       }
 
       if (carouselErrors.length === accounts.length) {
@@ -260,10 +302,21 @@ export async function POST(request: Request) {
                 console.warn(`[Publish API] Permalink save failed (non-fatal):`, plErr.message);
               }
             }
+
+            // Decrement per-account daily quota on success
+            await db.decrementAccountQuota(account.id);
           } catch (accErr: any) {
             console.error(`[Publish API] Failed posting to ${account.name}:`, accErr);
             publishErrors.push(`${account.name}: ${accErr.message || accErr}`);
           }
+        }
+
+        // Update rate limit window: 1 op per successful account publish
+        const successfulAccountOps = publishResults.length;
+        if (successfulAccountOps > 0) {
+          const newOpsUsed = opsUsed + successfulAccountOps;
+          opsUsed = newOpsUsed; // accumulate across media items in this request
+          await db.upsertRateLimitWindow(session.ownerId, newOpsUsed, new Date());
         }
 
         if (publishErrors.length === accounts.length) {

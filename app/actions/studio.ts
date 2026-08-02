@@ -307,7 +307,7 @@ export async function updateAdminTelegramAction(username: string): Promise<Actio
 /**
  * Create a signed upload URL for uploading files directly from client to Supabase Storage.
  */
-export async function getSignedUploadUrlAction(filename: string, mimeType: string): Promise<ActionResponse<{ signedUrl: string; token: string; path: string; id: string; publicUrl: string; mediaType: "image" | "video" }>> {
+export async function getSignedUploadUrlAction(filename: string, mimeType: string): Promise<ActionResponse<{ signedUrl: string; token: string; path: string; id: string; publicUrl: string; mediaType: "image" | "video"; currentWorkspaceSizeBytes: number }>> {
   try {
     const session = await getCurrentSession();
     if (!session || !session.success || !session.ownerId || !session.role) {
@@ -324,12 +324,14 @@ export async function getSignedUploadUrlAction(filename: string, mimeType: strin
       };
     }
 
-    // Verify 20 active files quota limit
-    const activeCount = await db.getActiveMediaCount(session.ownerId);
-    if (activeCount >= 20) {
+    // Verify 400MB workspace size limit
+    const MAX_WORKSPACE_BYTES = 400 * 1024 * 1024;
+    const currentSizeBytes = await db.getWorkspaceSizeBytes(session.ownerId);
+    if (currentSizeBytes >= MAX_WORKSPACE_BYTES) {
+      const usedMB = (currentSizeBytes / 1024 / 1024).toFixed(0);
       return {
         success: false,
-        error: "Workspace limit reached: You can keep up to 20 active media files in your queue. Please delete some existing files before uploading new ones."
+        error: `Workspace full (${usedMB} MB / 400 MB). Delete some media before uploading more.`
       };
     }
 
@@ -353,6 +355,7 @@ export async function getSignedUploadUrlAction(filename: string, mimeType: strin
         id,
         publicUrl,
         mediaType,
+        currentWorkspaceSizeBytes: currentSizeBytes,
       }
     };
   } catch (err: any) {
@@ -368,7 +371,8 @@ export async function registerUploadedMediaAction(
   id: string,
   filename: string,
   mediaType: "image" | "video",
-  publicUrl: string
+  publicUrl: string,
+  fileSize?: number
 ): Promise<ActionResponse<any>> {
   try {
     const session = await getCurrentSession();
@@ -385,8 +389,8 @@ export async function registerUploadedMediaAction(
       ownerRole: session.role
     });
 
-    // Update with the URL column
-    const updatedItem = await db.updateMedia(id, { cloudinaryUrl: publicUrl });
+    // Update with the URL column and file size
+    const updatedItem = await db.updateMedia(id, { cloudinaryUrl: publicUrl, fileSize: fileSize || 0 });
     return { success: true, data: updatedItem };
   } catch (err: any) {
     console.error("registerUploadedMediaAction error:", err);

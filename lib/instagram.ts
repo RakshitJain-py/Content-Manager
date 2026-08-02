@@ -250,12 +250,13 @@ export async function publishContainer(
 export async function updateMediaSettings(
   publishedMediaId: string,
   accessToken: string,
-  opts: { disableComments?: boolean }
+  opts: { disableComments?: boolean; hideLikes?: boolean }
 ): Promise<void> {
+  const url = `${GRAPH_BASE}/${publishedMediaId}`;
+
   if (opts.disableComments) {
-    const url = `${GRAPH_BASE}/${publishedMediaId}`;
     const params = new URLSearchParams({
-      comment_enabled: "false",
+      comments_disabled: "true",
       access_token: accessToken,
     });
     console.log(`[IG API] Disabling comments on published media ${publishedMediaId}...`);
@@ -269,6 +270,25 @@ export async function updateMediaSettings(
       }
     } catch (err) {
       console.error(`[IG API] Error disabling comments:`, err);
+    }
+  }
+
+  if (opts.hideLikes) {
+    const params = new URLSearchParams({
+      hide_like_and_view_counts: "true",
+      access_token: accessToken,
+    });
+    console.log(`[IG API] Hiding like/view counts on published media ${publishedMediaId}...`);
+    try {
+      const res = await fetch(url, { method: "POST", body: params });
+      const data = await res.json();
+      if (data.error) {
+        console.error(`[IG API] Failed to hide like/view counts:`, data.error);
+      } else {
+        console.log(`[IG API] Like/view counts successfully hidden on media ${publishedMediaId}.`);
+      }
+    } catch (err) {
+      console.error(`[IG API] Error hiding like/view counts:`, err);
     }
   }
 }

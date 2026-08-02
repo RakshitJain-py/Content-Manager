@@ -18,6 +18,8 @@ export interface MediaQueueItemProps {
   onRemove: (id: string) => void;
   /** Callback to check publish access before posting */
   onPublish: () => void;
+  /** True when a publishing action is currently executing. */
+  isPublishing?: boolean;
 }
 
 /** A single uploaded file with select, preview, remove and post actions. */
@@ -29,6 +31,7 @@ export function MediaQueueItem({
   onToggle,
   onRemove,
   onPublish,
+  isPublishing = false,
 }: MediaQueueItemProps) {
   const selected = selectionIndex > -1;
 
@@ -45,12 +48,17 @@ export function MediaQueueItem({
       )}
     >
       <button
-        onClick={() => onToggle(item.id)}
+        onClick={() => !isPublishing && onToggle(item.id)}
+        disabled={isPublishing}
         aria-label="Select media"
         aria-pressed={selected}
         className={cn(
           "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold",
-          selected ? "ig-gradient border-transparent" : "border-neutral-600",
+          isPublishing 
+            ? "border-neutral-700 bg-neutral-900 text-neutral-600 cursor-not-allowed opacity-50"
+            : selected 
+            ? "ig-gradient border-transparent" 
+            : "border-neutral-600",
         )}
       >
         {selected && (ordered ? selectionIndex + 1 : <Check className="h-3 w-3" />)}
@@ -82,9 +90,15 @@ export function MediaQueueItem({
       {!ordered && (
         <button 
           onClick={handlePostClick}
-          className="ig-gradient rounded-lg px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] cursor-pointer"
+          disabled={isPublishing}
+          className={cn(
+            "rounded-lg px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-white transition-all cursor-pointer",
+            isPublishing
+              ? "bg-neutral-850 border border-neutral-800 text-neutral-500 cursor-not-allowed opacity-50"
+              : "ig-gradient"
+          )}
         >
-          Post
+          {isPublishing ? "Posting..." : "Post"}
         </button>
       )}
     </div>

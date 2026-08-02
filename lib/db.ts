@@ -45,6 +45,7 @@ pool.query(`
 pool.query(`
   ALTER TABLE media ADD COLUMN IF NOT EXISTS caption TEXT DEFAULT '';
   ALTER TABLE media ADD COLUMN IF NOT EXISTS permalink TEXT DEFAULT '';
+  ALTER TABLE media ADD COLUMN IF NOT EXISTS file_size BIGINT DEFAULT 0;
   CREATE TABLE IF NOT EXISTS system_settings (
     key VARCHAR(255) PRIMARY KEY,
     value TEXT NOT NULL
@@ -56,6 +57,23 @@ pool.query(`
   console.log("[DB] Media table columns and system_settings table ensured.");
 }).catch((err) => {
   console.error("[DB] Media migration error:", err.message);
+});
+
+// Rate limiting and account quota migrations
+pool.query(`
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS posts_remaining INTEGER NOT NULL DEFAULT 20;
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS quota_reset_at TIMESTAMPTZ;
+  CREATE TABLE IF NOT EXISTS rate_limit_windows (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    ops_used INTEGER NOT NULL DEFAULT 0,
+    window_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT rate_limit_windows_user_id_unique UNIQUE (user_id)
+  );
+`).then(() => {
+  console.log("[DB] Rate limiting tables and columns ensured.");
+}).catch((err) => {
+  console.error("[DB] Rate limiting migration error:", err.message);
 });
 
 export const db = {
@@ -257,12 +275,75 @@ export const db = {
     return res.rows[0].count;
   },
 
+  /** Get total active workspace size in bytes for a user (pending media only). */
+  async getWorkspaceSizeBytes(ownerId: string): Promise<number> {
+    const res = await this.query(
+      "SELECT COALESCE(SUM(file_size), 0)::bigint as total FROM media WHERE owner_id = $1 AND status = 'pending'",
+      [ownerId]
+    );
+    return Number(res.rows[0].total);
+  },
+
   async getActiveMediaCount(ownerId: string): Promise<number> {
     const res = await this.query(
       "SELECT COUNT(*)::int as count FROM media WHERE owner_id = $1 AND status = 'pending'",
       [ownerId]
     );
     return res.rows[0].count;
+  },
+
+  // ─── Rate Limit Windows ───────────────────────────────────────────────
+
+  async getRateLimitWindow(userId: string): Promise<{ opsUsed: number; windowStartedAt: Date } | null> {
+    const res = await this.query(
+      "SELECT ops_used, window_started_at FROM rate_limit_windows WHERE user_id = $1",
+      [userId]
+    );
+    if (res.rows.length === 0) return null;
+    return {
+      opsUsed: res.rows[0].ops_used,
+      windowStartedAt: new Date(res.rows[0].window_started_at),
+    };
+  },
+
+  async upsertRateLimitWindow(userId: string, opsUsed: number, windowStartedAt: Date): Promise<void> {
+    await this.query(
+      `INSERT INTO rate_limit_windows (user_id, ops_used, window_started_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET ops_used = $2, window_started_at = $3`,
+      [userId, opsUsed, windowStartedAt.toISOString()]
+    );
+  },
+
+  /** Decrement posts_remaining for an account; set quota_reset_at on first publish. */
+  async decrementAccountQuota(accountId: string): Promise<void> {
+    // Check if quota_reset_at is NULL (first publish) or has already expired
+    const res = await this.query(
+      "SELECT posts_remaining, quota_reset_at FROM accounts WHERE id = $1",
+      [accountId]
+    );
+    if (res.rows.length === 0) return;
+    const { quota_reset_at } = res.rows[0];
+
+    // If reset time has passed, reset the counter first
+    if (quota_reset_at && new Date() >= new Date(quota_reset_at)) {
+      await this.query(
+        "UPDATE accounts SET posts_remaining = 19, quota_reset_at = NOW() + INTERVAL '24 hours 5 minutes' WHERE id = $1",
+        [accountId]
+      );
+    } else if (!quota_reset_at) {
+      // First publish ever for this account
+      await this.query(
+        "UPDATE accounts SET posts_remaining = GREATEST(posts_remaining - 1, 0), quota_reset_at = NOW() + INTERVAL '24 hours 5 minutes' WHERE id = $1",
+        [accountId]
+      );
+    } else {
+      // Normal decrement
+      await this.query(
+        "UPDATE accounts SET posts_remaining = GREATEST(posts_remaining - 1, 0) WHERE id = $1",
+        [accountId]
+      );
+    }
   },
 
   async getMediaById(id: string) {
@@ -335,7 +416,8 @@ export const db = {
       disableComments: "disable_comments",
       shareToFeed: "share_to_feed",
       caption: "caption",
-      permalink: "permalink"
+      permalink: "permalink",
+      fileSize: "file_size",
     };
 
     for (const [key, val] of Object.entries(updates)) {
@@ -375,27 +457,46 @@ export const db = {
     } else {
       res = await this.query("SELECT * FROM accounts WHERE owner_id = $1 AND is_active = TRUE", [ownerId]);
     }
-    return res.rows.map(a => ({
-      id: a.id,
-      name: a.name,
-      ownerId: a.owner_id,
-      ownerRole: a.owner_role,
-      accessToken: a.access_token,
-      isActive: a.is_active
-    }));
+    return res.rows.map(a => {
+      // Lazily resolve quota: if reset time has passed, treat as 20
+      let postsRemaining: number = a.posts_remaining ?? 20;
+      let quotaResetAt: string | null = a.quota_reset_at ? new Date(a.quota_reset_at).toISOString() : null;
+      if (quotaResetAt && new Date() >= new Date(quotaResetAt)) {
+        postsRemaining = 20;
+        quotaResetAt = null; // will be reset on next publish
+      }
+      return {
+        id: a.id,
+        name: a.name,
+        ownerId: a.owner_id,
+        ownerRole: a.owner_role,
+        accessToken: a.access_token,
+        isActive: a.is_active,
+        postsRemaining,
+        quotaResetAt,
+      };
+    });
   },
 
   async getAccountById(id: string) {
     const res = await this.query("SELECT * FROM accounts WHERE id = $1", [String(id)]);
     if (res.rows.length === 0) return null;
     const a = res.rows[0];
+    let postsRemaining: number = a.posts_remaining ?? 20;
+    let quotaResetAt: string | null = a.quota_reset_at ? new Date(a.quota_reset_at).toISOString() : null;
+    if (quotaResetAt && new Date() >= new Date(quotaResetAt)) {
+      postsRemaining = 20;
+      quotaResetAt = null;
+    }
     return {
       id: a.id,
       name: a.name,
       ownerId: a.owner_id,
       ownerRole: a.owner_role,
       accessToken: a.access_token,
-      isActive: a.is_active
+      isActive: a.is_active,
+      postsRemaining,
+      quotaResetAt,
     };
   },
 
@@ -561,7 +662,8 @@ export const db = {
       disableComments: row.disable_comments,
       shareToFeed: row.share_to_feed,
       caption: row.caption || "",
-      permalink: row.permalink || ""
+      permalink: row.permalink || "",
+      fileSize: Number(row.file_size) || 0,
     };
   },
 

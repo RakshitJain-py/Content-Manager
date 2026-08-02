@@ -52,6 +52,14 @@ export interface UseQueueResult {
   applyMediaAsCover: (mediaId: string) => Promise<void>;
   lastSavedCoverUrl: string;
   isSettingsDirty: boolean;
+  /** Current rate limit window state (synced from DB after each publish). */
+  rateLimitWindow: { opsUsed: number; windowStartedAt: Date } | null;
+  /** Optimistically update ops used (called after a successful publish). */
+  incrementOpsUsed: (count: number) => void;
+  /** Boolean indicating if a publishing operation is currently active. */
+  isPublishing: boolean;
+  /** Force refetch rate limit window from server. */
+  refreshRateLimit: () => Promise<void>;
 }
 
 export function useQueue(onLoginRequired: () => void): UseQueueResult {
@@ -88,6 +96,38 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
   const [lastSavedStoryLink, setLastSavedStoryLink] = useState("");
   const [loading, setLoading] = useState(true);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  // Rate limit window state — synced from server after each publish
+  const [rateLimitWindow, setRateLimitWindow] = useState<{ opsUsed: number; windowStartedAt: Date } | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  const refreshRateLimit = useCallback(async () => {
+    try {
+      const r = await fetch("/api/rate-limit");
+      const d = await r.json();
+      if (d.success) {
+        if (d.window) {
+          setRateLimitWindow({ opsUsed: d.window.opsUsed, windowStartedAt: new Date(d.window.windowStartedAt) });
+        } else {
+          setRateLimitWindow(null);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to refresh rate limit:", err);
+    }
+  }, []);
+
+  // Load current window state from server on mount
+  useEffect(() => {
+    refreshRateLimit();
+  }, [refreshRateLimit]);
+
+  const incrementOpsUsed = useCallback((count: number) => {
+    setRateLimitWindow((prev) => {
+      const now = new Date();
+      if (!prev) return { opsUsed: count, windowStartedAt: now };
+      return { opsUsed: prev.opsUsed + count, windowStartedAt: now };
+    });
+  }, []);
 
   const setOption = useCallback((key: keyof PublishSettings, value: boolean) => {
     setOptions((prev) => ({ ...prev, [key]: value }));
@@ -235,9 +275,23 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       return;
     }
 
-    const activeCount = media.filter((item) => item.status === "pending").length;
-    if (activeCount + files.length > 20) {
-      toast.error(`Workspace limit reached: You can keep up to 20 active media files in your queue. (Current active: ${activeCount})`);
+
+    // Check 400MB workspace size limit
+    const MAX_WORKSPACE_BYTES = 400 * 1024 * 1024; // 400MB
+    let currentWorkspaceBytes = 0;
+    // Sum sizes of all pending items already in the queue
+    for (const item of media) {
+      currentWorkspaceBytes += (item as any).fileSize || 0;
+    }
+    // Sum sizes of the new files being added
+    let newFilesBytes = 0;
+    for (let i = 0; i < files.length; i++) {
+      newFilesBytes += files[i].size;
+    }
+
+    if (currentWorkspaceBytes + newFilesBytes > MAX_WORKSPACE_BYTES) {
+      const usedMB = (currentWorkspaceBytes / 1024 / 1024).toFixed(0);
+      toast.error(`Workspace limit reached: Your workspace is at ${usedMB} MB. Max is 400 MB. Delete some media to free space.`);
       return;
     }
 
@@ -281,7 +335,7 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
         }
 
         // 3. Register the uploaded media metadata in PostgreSQL
-        const registerRes = await registerUploadedMediaAction(id, file.name, mediaType, publicUrl);
+        const registerRes = await registerUploadedMediaAction(id, file.name, mediaType, publicUrl, file.size);
         if (!registerRes.success || !registerRes.data) {
           throw new Error(registerRes.error || "Failed to register uploaded file in database");
         }
@@ -419,6 +473,10 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
   }, [coverUrl, onLoginRequired]);
 
   const postMedia = useCallback(async (id: string, targetAccountIds: string[]) => {
+    if (isPublishing) {
+      toast.error("A publish action is already in progress. Please wait.");
+      return;
+    }
     if (targetAccountIds.length === 0) {
       toast.error("Please select at least one account to publish to.");
       return;
@@ -431,6 +489,8 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       toast.error(`"${item.name}" is an image — only videos can be published as Reels.`);
       return;
     }
+
+    setIsPublishing(true);
 
     const promise = fetch("/api/media/publish", {
       method: "POST",
@@ -467,6 +527,9 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       setMedia((list) => list.filter((m) => m.id !== id));
       setSelectedIds((ids) => ids.filter((x) => x !== id));
       return data;
+    }).finally(() => {
+      setIsPublishing(false);
+      refreshRateLimit();
     });
 
     toast.promise(promise, {
@@ -474,9 +537,13 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       success: `Successfully published "${item.name}"!`,
       error: (err) => `Failed to publish: ${err.message || err}`,
     });
-  }, [media, contentType, caption, storyLink, coverUrl, options]);
+  }, [media, contentType, caption, storyLink, coverUrl, options, isPublishing, refreshRateLimit]);
 
   const postSelected = useCallback(async (targetAccountIds: string[]) => {
+    if (isPublishing) {
+      toast.error("A publish action is already in progress. Please wait.");
+      return;
+    }
     if (selectedIds.length === 0) {
       toast.error("No media items selected.");
       return;
@@ -502,6 +569,8 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
 
     // Carousel mode: multiple slides into one post
     const carouselMode = storyBuilding && selectedIds.length > 1 && (contentType === "post" || contentType === "story");
+
+    setIsPublishing(true);
 
     const promise = fetch("/api/media/publish", {
       method: "POST",
@@ -547,6 +616,9 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
       setMedia((list) => list.filter((m) => !selectedIds.includes(m.id)));
       setSelectedIds([]);
       return data;
+    }).finally(() => {
+      setIsPublishing(false);
+      refreshRateLimit();
     });
 
     toast.promise(promise, {
@@ -558,7 +630,7 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
         : `Successfully published ${selectedIds.length} item(s)!`,
       error: (err) => `Failed to publish: ${err.message || err}`,
     });
-  }, [selectedIds, media, contentType, storyBuilding, caption, storyLink, coverUrl, options]);
+  }, [selectedIds, media, contentType, storyBuilding, caption, storyLink, coverUrl, options, isPublishing, refreshRateLimit]);
 
   const allSelected = media.length > 0 && selectedIds.length === media.length;
 
@@ -630,5 +702,9 @@ export function useQueue(onLoginRequired: () => void): UseQueueResult {
     applyMediaAsCover,
     lastSavedCoverUrl,
     isSettingsDirty,
+    rateLimitWindow,
+    incrementOpsUsed,
+    isPublishing,
+    refreshRateLimit,
   };
 }

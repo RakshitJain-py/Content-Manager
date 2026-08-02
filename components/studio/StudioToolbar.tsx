@@ -29,6 +29,8 @@ export interface StudioToolbarProps {
   onPublish: () => void;
   /** Callback to open the Read Me modal */
   onOpenReadme: () => void;
+  /** True when a publishing action is currently executing. */
+  isPublishing?: boolean;
 }
 
 const LEFT_TYPES: ReadonlyArray<Exclude<ContentType, "history">> = ["post", "reel", "story"];
@@ -45,6 +47,7 @@ export function StudioToolbar({
   onToggleStoryBuilding,
   onPublish,
   onOpenReadme,
+  isPublishing = false,
 }: StudioToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -57,42 +60,53 @@ export function StudioToolbar({
   const showMultiSlides = contentType === "post" || contentType === "story";
 
   return (
-    <div className="flex items-center justify-between border-b border-neutral-900 px-4 py-3 bg-[#0a0a0a] min-h-[56px] select-none">
-      {/* 1. Left Section: Content types divided by a thin line */}
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between border-b border-neutral-900 px-4 py-2.5 bg-[#0a0a0a] min-h-[48px] select-none">
+      {/* 1. Left Group: Content Type Tabs (including History) */}
+      <div className="flex items-center gap-1.5">
         {LEFT_TYPES.map((type) => (
           <button
             key={type}
             onClick={() => onContentTypeChange(type)}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-colors cursor-pointer",
+              "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold capitalize transition-colors cursor-pointer",
               contentType === type
                 ? "ig-gradient text-white"
                 : "border border-neutral-800 text-neutral-400 hover:text-white"
             )}
           >
             {type === "reel" ? (
-              <Film className="h-3.5 w-3.5" />
+              <Film className="h-3 w-3" />
             ) : (
-              <ImageIcon className="h-3.5 w-3.5" />
+              <ImageIcon className="h-3 w-3" />
             )}
             {type}
           </button>
         ))}
+
+        <div className="h-4 w-px bg-neutral-800 mx-1" />
+
+        <button
+          onClick={() => onContentTypeChange("history")}
+          className={cn(
+            "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors cursor-pointer",
+            contentType === "history"
+              ? "ig-gradient text-white"
+              : "border border-neutral-800 text-neutral-400 hover:text-white bg-neutral-900/30"
+          )}
+        >
+          <History className="h-3 w-3" /> History
+        </button>
       </div>
 
-      {/* Thin line separating content types */}
-      <div className="hidden sm:block h-5 w-px bg-neutral-800 mx-3" />
-
-      {/* 2. Center Section: Upload, History, Read Me */}
-      <div className="flex items-center gap-2.5 mx-auto">
+      {/* 2. Center Group: Action & Selection Tools */}
+      <div className="flex items-center gap-2">
         {contentType && contentType !== "history" && (
           <>
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-900 px-3.5 py-1.5 text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer"
+              className="flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-900 px-2.5 py-1.5 text-[11px] text-neutral-300 hover:text-white transition-colors cursor-pointer"
             >
-              <Upload className="h-3.5 w-3.5 text-pink-500" /> Upload media
+              <Upload className="h-3 w-3 text-pink-500" /> Upload
             </button>
             <input
               ref={fileRef}
@@ -105,71 +119,86 @@ export function StudioToolbar({
           </>
         )}
 
-        <button
-          onClick={() => onContentTypeChange("history")}
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer",
-            contentType === "history"
-              ? "ig-gradient text-white"
-              : "border border-neutral-800 text-neutral-400 hover:text-white bg-neutral-900/30"
-          )}
-        >
-          <History className="h-3.5 w-3.5" /> History
-        </button>
-
-        <button
-          onClick={onOpenReadme}
-          className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900 px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
-        >
-          <BookOpen className="h-3.5 w-3.5 text-blue-400" /> Read Me
-        </button>
-      </div>
-
-      {/* 3. Right Section: Ordered from right-to-left: Post, Select All, Multiple Slides */}
-      <div className="flex items-center gap-2">
-        {/* Multiple Slides (left-most in right section) */}
         {contentType && contentType !== "history" && showMultiSlides && (
           <button
             onClick={onToggleStoryBuilding}
             disabled={mediaCount === 0}
             title="Bundle selected media into one post with multiple slides in order"
             className={cn(
-              "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 cursor-pointer",
+              "flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors disabled:opacity-40 cursor-pointer",
               storyBuilding
                 ? "ig-gradient border-transparent text-white"
                 : "border-neutral-700 bg-neutral-900 text-neutral-300 hover:border-neutral-500 hover:text-white"
             )}
           >
-            <Layers className="h-3.5 w-3.5" />
-            Multiple Slides
+            <Layers className="h-3 w-3" />
+            Slides
           </button>
         )}
 
-        {/* Select All (middle in right section) */}
         {contentType && contentType !== "history" && mediaCount > 0 && (
           <button
             onClick={onToggleSelectAll}
-            className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900/20 px-3 py-1.5 text-xs text-neutral-300 hover:text-white transition-colors cursor-pointer"
+            className="flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/20 px-2.5 py-1.5 text-[11px] text-neutral-300 hover:text-white transition-colors cursor-pointer"
           >
-            <Check className="h-3.5 w-3.5" /> {allSelected ? "Deselect all" : "Select all"}
+            <Check className="h-3 w-3" /> {allSelected ? "Deselect" : "Select all"}
           </button>
         )}
+      </div>
 
-        {/* Post (right-most in right section) */}
+      {/* 3. Right Group: Help (Read Me) & Publish Action */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onOpenReadme}
+          className="flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900 px-2.5 py-1.5 text-[11px] text-neutral-455 hover:text-white transition-colors cursor-pointer"
+        >
+          <BookOpen className="h-3 w-3 text-blue-400" /> Guide
+        </button>
+
         {contentType && contentType !== "history" && (
           storyBuilding && selectedCount > 0 ? (
             <button
               onClick={handlePostClick}
-              className="ig-gradient flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-white shadow-[0_4px_20px_-6px_rgba(214,41,118,0.7)] transition-transform hover:scale-[1.02] cursor-pointer"
+              disabled={isPublishing}
+              className={cn(
+                "flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-all cursor-pointer",
+                isPublishing 
+                  ? "bg-neutral-800 border border-neutral-700 text-neutral-500 cursor-not-allowed opacity-50"
+                  : "ig-gradient shadow-[0_4px_20px_-6px_rgba(214,41,118,0.7)] hover:scale-[1.02]"
+              )}
             >
-              <Send className="h-3.5 w-3.5" /> Post ({selectedCount})
+              {isPublishing ? (
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-600 border-t-pink-500 shrink-0" />
+                  Posting
+                </>
+              ) : (
+                <>
+                  <Send className="h-3 w-3" /> Post ({selectedCount})
+                </>
+              )}
             </button>
           ) : !storyBuilding && selectedCount > 0 ? (
             <button
               onClick={handlePostClick}
-              className="ig-gradient flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-bold uppercase tracking-[0.12em] text-white transition-transform hover:scale-[1.02] cursor-pointer"
+              disabled={isPublishing}
+              className={cn(
+                "flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-all cursor-pointer",
+                isPublishing 
+                  ? "bg-neutral-800 border border-neutral-700 text-neutral-500 cursor-not-allowed opacity-50"
+                  : "ig-gradient hover:scale-[1.02]"
+              )}
             >
-              <Send className="h-3.5 w-3.5" /> Post {selectedCount > 1 ? `(${selectedCount})` : ""}
+              {isPublishing ? (
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-600 border-t-pink-500 shrink-0" />
+                  Posting
+                </>
+              ) : (
+                <>
+                  <Send className="h-3 w-3" /> Post {selectedCount > 1 ? `(${selectedCount})` : ""}
+                </>
+              )}
             </button>
           ) : null
         )}
